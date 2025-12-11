@@ -41,17 +41,72 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-        // --- Firebase Init ---
-        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        // ==============================================================================
+        // 【本機執行設定區】
+        // 若您下載到桌面執行，請在此填入您的 Firebase Config 以啟用線上功能。
+        // 請確保您已在 Firebase Console (https://console.firebase.google.com/) 啟用：
+        // 1. Authentication (啟用「匿名/Anonymous」登入)
+        // 2. Firestore Database (啟用並設為「測試模式/Test Mode」以允許讀寫)
+        // ==============================================================================
+        
+        const LOCAL_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAmYRuvHms3e0fbUqZW8ReiBIYBCZzgWTY",
+  authDomain: "chinesechess-826cb.firebaseapp.com",
+  projectId: "chinesechess-826cb",
+  storageBucket: "chinesechess-826cb.firebasestorage.app",
+  messagingSenderId: "595839849276",
+  appId: "1:595839849276:web:640e25159cd91ef4f50439",
+  measurementId: "G-TWRQ4R1V8Y"
+}; 
+
+        // 範例 (請將上方 null 替換為您的設定物件，如下所示):
+        /*
+        const LOCAL_FIREBASE_CONFIG = {
+          apiKey: "AIzaSyDxxxxxxxxxxxxxxxxxxxxxxxx",
+          authDomain: "your-project.firebaseapp.com",
+          projectId: "your-project-id",
+          storageBucket: "your-project.firebasestorage.app",
+          messagingSenderId: "1234567890",
+          appId: "1:1234567890:web:xxxxxxxxxxxx"
+        };
+        */
+        // ==============================================================================
+
+        // --- Firebase Init with Safety Check ---
+        let app, auth, db;
+        let isFirebaseConfigured = false;
+
+        try {
+            let config = null;
+            // 優先使用本機設定
+            if (LOCAL_FIREBASE_CONFIG) {
+                config = LOCAL_FIREBASE_CONFIG;
+                console.log("正在使用本機 Firebase 設定...");
+            } 
+            // 其次嘗試環境變數 (Canvas 線上環境)
+            else if (window.__firebase_config) {
+                config = JSON.parse(window.__firebase_config);
+            }
+
+            if (config && config.apiKey) {
+                app = initializeApp(config);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                isFirebaseConfigured = true;
+            }
+        } catch (e) {
+            console.warn("Firebase 初始化失敗 (可能是設定錯誤):", e);
+        }
+
         const appId = window.__app_id || 'default-app-id';
 
-        // Global instances for React to access
-        window.db = db;
-        window.auth = auth;
+        // 將變數掛載到 window，並確保即使初始化失敗也有預設值以防崩潰
+        window.db = db || null;
+        window.auth = auth || null;
         window.appId = appId;
+        window.isFirebaseConfigured = isFirebaseConfigured;
+        
+        // 這些函式如果 Firebase 未初始化，設為空函式或拋出友善錯誤
         window.signInAnonymously = signInAnonymously;
         window.signInWithCustomToken = signInWithCustomToken;
         window.onAuthStateChanged = onAuthStateChanged;
@@ -68,19 +123,29 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- Firebase Helper Functions (Accessed via window due to module scope) ---
+        // --- Firebase Helper Functions ---
         const useFirebaseUser = () => {
             const [user, setUser] = useState(null);
             useEffect(() => {
+                // 如果沒有配置 Firebase，直接不執行，避免錯誤
+                if (!window.isFirebaseConfigured || !window.auth) return;
+
                 const initAuth = async () => {
-                    if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
-                        await window.signInWithCustomToken(window.auth, window.__initial_auth_token);
-                    } else {
-                        await window.signInAnonymously(window.auth);
+                    try {
+                        if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
+                            await window.signInWithCustomToken(window.auth, window.__initial_auth_token);
+                        } else {
+                            await window.signInAnonymously(window.auth);
+                        }
+                    } catch (e) {
+                        console.error("Auth failed:", e);
                     }
                 };
                 initAuth();
-                return window.onAuthStateChanged(window.auth, (u) => setUser(u));
+                
+                try {
+                    return window.onAuthStateChanged(window.auth, (u) => setUser(u));
+                } catch (e) { console.error("Auth listener failed", e); }
             }, []);
             return user;
         };
@@ -99,6 +164,7 @@
         const X = (p) => <IconWrapper {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></IconWrapper>;
         const Users = (p) => <IconWrapper {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconWrapper>;
         const Copy = (p) => <IconWrapper {...p}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></IconWrapper>;
+        const CloudOff = (p) => <IconWrapper {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0 4 7h1.8a5 5 0 0 0 5.5 5.5"/><line x1="1" x2="23" y1="1" y2="23"/></IconWrapper>;
 
         // --- Constants & Logic ---
         const PIECE_SIZE_CLASS = "w-8 h-8 sm:w-12 sm:h-12 md:w-14 md:h-14";
@@ -165,28 +231,28 @@
             const [selected, setSelected] = useState(null); 
             const [winner, setWinner] = useState(null);
             
-            // Online Specific State
             const user = useFirebaseUser();
             const [onlineState, setOnlineState] = useState(null);
 
             useEffect(() => {
-                if (onlineMode && onlineMode.roomId) {
-                    const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
-                        if (doc.exists()) {
-                            const data = doc.data();
-                            setBoard(JSON.parse(data.board));
-                            setTurn(data.turn);
-                            setWinner(data.winner);
-                            setOnlineState(data);
-                        }
-                    });
-                    return () => unsub();
+                if (onlineMode && onlineMode.roomId && window.isFirebaseConfigured) {
+                    try {
+                        const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
+                            if (doc.exists()) {
+                                const data = doc.data();
+                                setBoard(JSON.parse(data.board));
+                                setTurn(data.turn);
+                                setWinner(data.winner);
+                                setOnlineState(data);
+                            }
+                        });
+                        return () => unsub();
+                    } catch(e) { console.error("Snapshot error:", e); }
                 }
             }, [onlineMode]);
 
-            // Helper to update Firebase
             const updateRemote = async (newBoard, newTurn, newWinner) => {
-                if (!onlineMode) return;
+                if (!onlineMode || !window.isFirebaseConfigured) return;
                 await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), {
                     board: JSON.stringify(newBoard),
                     turn: newTurn,
@@ -194,7 +260,6 @@
                 });
             };
 
-            // Check if it's my turn in online mode
             const isMyTurn = () => {
                 if (!onlineMode) return true;
                 if (!onlineState) return false;
@@ -253,7 +318,6 @@
 
             const handleSquareClick = async (x, y) => {
                 if (winner) return;
-                // Online check: must be playing and my turn
                 if (onlineMode) {
                     if (onlineState?.status !== 'playing') return;
                     if (!isMyTurn()) return;
@@ -292,11 +356,10 @@
             };
 
             const resetGame = async () => {
-                if (onlineMode) return; // Online reset handled differently or disabled
+                if (onlineMode) return; 
                 setBoard(getInitialBoard()); setTurn('red'); setWinner(null); setSelected(null);
             };
 
-            // Calculate status text
             let statusText = "";
             if (winner) statusText = (winner === 'red' ? '紅方' : '黑方') + ' 獲勝!';
             else if (onlineMode && onlineState?.status === 'waiting') statusText = "等待對手加入...";
@@ -314,7 +377,6 @@
                         {!onlineMode && <button onClick={resetGame} className="p-2 bg-gray-200 rounded hover:bg-gray-300 transition"><RefreshCcw size={20} /></button>}
                         {onlineMode && <div className="w-10"></div>}
                     </div>
-                    {/* Board Rendering */}
                     <div className={`relative ${BOARD_COLOR} p-2 sm:p-4 rounded shadow-2xl select-none`} style={{ width: '100%', maxWidth: '600px', aspectRatio: '9/10' }}>
                         <div className="w-full h-full border-2 border-stone-800 relative grid grid-rows-10 grid-cols-9">
                             <div className="absolute top-[44.44%] left-0 w-full h-[11.11%] flex items-center justify-center pointer-events-none z-0"><div className="absolute top-2 bottom-2 left-2 right-2 border-t-2 border-b-2 border-stone-800/80 bg-stone-500/10"></div><div className="relative z-10 flex w-full justify-around px-8 sm:px-16 text-stone-800/60 font-serif text-2xl sm:text-4xl font-bold tracking-widest"><span>楚 河</span><span>漢 界</span></div></div>
@@ -345,7 +407,7 @@
             const [turn, setTurn] = useState(null); 
             const [selectedIdx, setSelectedIdx] = useState(null);
             const [winner, setWinner] = useState(null);
-            const [myColor, setMyColor] = useState(null); // Local player's color role (in online mode, determined by Firestore)
+            const [myColor, setMyColor] = useState(null); 
             const [deadPieces, setDeadPieces] = useState({ red: [], black: [] });
             const [message, setMessage] = useState(null); 
             const [captureAnim, setCaptureAnim] = useState(null); 
@@ -359,49 +421,43 @@
 
             // --- Online Logic ---
             useEffect(() => {
-                if (onlineMode && onlineMode.roomId) {
-                    const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
-                        if (doc.exists()) {
-                            const data = doc.data();
-                            setBoard(JSON.parse(data.board));
-                            setTurn(data.turn);
-                            setWinner(data.winner);
-                            setDeadPieces(JSON.parse(data.deadPieces));
-                            setRules(data.rules);
-                            setContinuousState(data.continuousState);
-                            setOnlineState(data);
-                            
-                            // Determine My Color
-                            if (data.colors && user) {
-                                if (data.colors[user.uid]) {
-                                    setMyColor(data.colors[user.uid]);
+                if (onlineMode && onlineMode.roomId && window.isFirebaseConfigured) {
+                    try {
+                        const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
+                            if (doc.exists()) {
+                                const data = doc.data();
+                                setBoard(JSON.parse(data.board));
+                                setTurn(data.turn);
+                                setWinner(data.winner);
+                                setDeadPieces(JSON.parse(data.deadPieces));
+                                setRules(data.rules);
+                                setContinuousState(data.continuousState);
+                                setOnlineState(data);
+                                
+                                if (data.colors && user) {
+                                    if (data.colors[user.uid]) {
+                                        setMyColor(data.colors[user.uid]);
+                                    }
                                 }
                             }
-                        }
-                    });
-                    return () => unsub();
+                        });
+                        return () => unsub();
+                    } catch(e) { console.error("Snapshot failed", e); }
                 }
             }, [onlineMode, user]);
 
             const showMessage = (msg) => { setMessage(msg); setTimeout(() => setMessage(null), 2000); };
 
-            // Helper: Is it my turn to act?
             const canIAct = () => {
-                if (!onlineMode) return true; // Local mode: always allow input (hotseat)
+                if (!onlineMode) return true; 
                 if (onlineState?.status !== 'playing') return false;
-                
-                // If colors are not assigned yet (first move), anyone can flip?
-                // Usually Host flips first or it's random. Let's say if no turn color set, allow anyone (or host)
-                if (!turn) return true; // Allow flip to determine color
-                
-                // If colors assigned
+                if (!turn) return true; 
                 if (myColor && turn === myColor) return true;
                 return false;
             };
 
-            // Helper: Update Remote
             const updateRemote = async (updates) => {
-                if (!onlineMode) return;
+                if (!onlineMode || !window.isFirebaseConfigured) return;
                 await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), updates);
             };
 
@@ -417,11 +473,7 @@
                     continuousState: { active: false, pieceIdx: null }
                 };
 
-                if (onlineMode) {
-                    // Only Host initializes
-                    // Assuming we are host if we are here via createRoom
-                    // But initGame is called by "Start Game" button in local mode or setup
-                } else {
+                if (!onlineMode) {
                     setPieces(p); setBoard(p); setTurn(null); setMyColor(null); setSelectedIdx(null); setWinner(null); setDeadPieces({ red: [], black: [] }); setMessage(null); setCaptureAnim(null); setContinuousState({ active: false, pieceIdx: null }); setRules(customRules); setShowSetup(false);
                 }
             };
@@ -462,12 +514,11 @@
 
             const handleInteraction = async (index) => {
                 if (winner) return;
-                if (!canIAct()) return; // Online Guard
+                if (!canIAct()) return; 
 
                 if (continuousState.active) {
                     if (index === continuousState.pieceIdx) { setSelectedIdx(index); return; }
                     const target = board[index];
-                    // Strict rule: if clicking own piece that is NOT the active one, warn
                     if (target && target.revealed && target.color === turn && index !== continuousState.pieceIdx) {
                         showMessage("連吃模式：必須使用當前棋子"); return;
                     }
@@ -475,10 +526,8 @@
 
                 const targetPiece = board[index];
 
-                // --- 1. Flip (Reveal) ---
                 if (targetPiece && !targetPiece.revealed) {
                     if (selectedIdx !== null) {
-                        // Capture Unrevealed Logic
                         if (rules.canCaptureUnrevealed) {
                             const attacker = board[selectedIdx];
                             const isCannon = attacker.value === 2;
@@ -489,15 +538,12 @@
                             if (!validMove) { showMessage(moveError); return; }
 
                             const revealedTarget = { ...targetPiece, revealed: true };
-                            // Check valid capture
                             if (revealedTarget.color === turn) {
-                                // Invalid: Hit own piece -> Reveal and End Turn (Penalty)
                                 const newBoard = [...board]; newBoard[index] = revealedTarget;
                                 await updateGameState(newBoard, null, "不能吃自己的棋！", true);
                                 return;
                             }
                             if (!canEat(attacker, revealedTarget)) {
-                                // Invalid: Too big -> Reveal and End Turn (Penalty)
                                 const newBoard = [...board]; newBoard[index] = revealedTarget;
                                 await updateGameState(newBoard, null, `階級不足`, true);
                                 return;
@@ -508,21 +554,17 @@
                             showMessage("規則：不能吃未翻開的棋子"); return;
                         }
                     } else {
-                        // Just Flip
                         const newBoard = [...board];
                         newBoard[index] = { ...targetPiece, revealed: true };
-                        
                         let updates = { board: JSON.stringify(newBoard) };
                         let nextTurn = turn;
 
-                        // Determine Colors if first flip
                         if (!turn) {
                             const flippedColor = newBoard[index].color;
                             nextTurn = flippedColor === 'red' ? 'black' : 'red';
                             updates.turn = nextTurn;
                             
                             if (onlineMode) {
-                                // Assign colors: Current User gets 'flippedColor', Opponent gets other
                                 const opponentId = Object.values(onlineState.players).find(id => id !== user.uid);
                                 const newColors = {
                                     [user.uid]: flippedColor,
@@ -546,24 +588,20 @@
                     }
                 }
 
-                // --- 2. Select Own Piece ---
                 if (targetPiece && targetPiece.revealed && targetPiece.color === turn) {
                     if (onlineMode && myColor && myColor !== turn) return; 
                     setSelectedIdx(index); setMessage(null); return;
                 }
 
-                // --- 3. Move or Attack ---
                 if (selectedIdx !== null) {
                     const attacker = board[selectedIdx];
                     const isCannon = attacker.value === 2;
                     if (!targetPiece) {
-                        // Move to empty
                         if (canMove(selectedIdx, index, false)) {
                             const newBoard = [...board]; newBoard[index] = attacker; newBoard[selectedIdx] = null;
-                            await updateGameState(newBoard, null, null, true); // End turn
+                            await updateGameState(newBoard, null, null, true); 
                         } else { showMessage("無效的移動"); }
                     } else if (targetPiece.revealed && targetPiece.color !== turn) {
-                        // Attack Revealed
                         let valid = false, err = "無法吃子";
                         if (isCannon) { if (canMove(selectedIdx, index, true)) valid = true; else err = "炮需隔一子才能吃子"; }
                         else { if (canMove(selectedIdx, index, false)) { if (canEat(attacker, targetPiece)) valid = true; else err = "階級不足"; } else err = "距離過遠"; }
@@ -609,14 +647,12 @@
                 const deadPiece = { ...victim, revealed: true };
                 const newDeadPieces = { ...deadPieces, [deadPiece.color]: [...deadPieces[deadPiece.color], deadPiece] };
 
-                // Check Win
                 const enemyColor = turn === 'red' ? 'black' : 'red';
                 const remaining = newBoard.filter(p => p && p.color === enemyColor && !p.dead);
                 let newWinner = null;
                 if (remaining.length === 0) newWinner = turn;
 
                 if (rules.allowContinuousCapture && !newWinner) {
-                    // Continuous Logic
                     const newState = { active: true, pieceIdx: toIdx };
                     if (onlineMode) {
                         await updateRemote({
@@ -632,7 +668,6 @@
                         showMessage(`吃掉 ${victim.type}！連吃中`);
                     }
                 } else {
-                    // Normal End Turn
                     let updates = { board: JSON.stringify(newBoard), deadPieces: JSON.stringify(newDeadPieces), winner: newWinner || null };
                     if (!newWinner) {
                         updates.turn = turn === 'red' ? 'black' : 'red';
@@ -650,7 +685,6 @@
                 }
             };
 
-            // --- Render ---
             let statusText = "";
             if (winner) statusText = (winner === 'red' ? '紅方' : '黑方') + ' 獲勝!';
             else if (onlineMode && onlineState?.status === 'waiting') statusText = "等待對手加入...";
@@ -659,7 +693,6 @@
 
             return (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-stone-800 p-2 relative">
-                    {/* Setup Modal (Local Only) */}
                     {showSetup && !onlineMode && (
                         <div className="absolute inset-0 bg-stone-900/90 z-50 flex items-center justify-center p-4">
                             <div className="bg-[#eecfa1] p-6 sm:p-8 rounded-xl shadow-2xl max-w-sm w-full border-4 border-[#8b4513] text-stone-900">
@@ -690,10 +723,6 @@
                         <div className="order-2 xl:order-1 w-full xl:w-auto flex justify-center"><DeadPile title="紅方陣亡" pieces={deadPieces.red} isRed={true} /></div>
                         <div className={`order-1 xl:order-2 shrink-0 grid grid-cols-8 gap-1 sm:gap-2 p-2 sm:p-4 rounded-lg shadow-2xl ${BOARD_COLOR} border-8 border-[#8b4513] mx-auto`}>
                             {board.map((piece, i) => {
-                                // Disable logic: 
-                                // 1. If online and not playing -> disabled
-                                // 2. If online and not my turn -> disabled
-                                // 3. If continuous capture, and piece is not the active one -> disabled (visually)
                                 let disabled = false;
                                 if (onlineMode && onlineState?.status !== 'playing') disabled = true;
                                 if (onlineMode && !canIAct()) disabled = true;
@@ -715,26 +744,36 @@
             );
         };
 
-        // --- Online Lobby ---
         const OnlineLobby = ({ onBack, onJoinGame }) => {
-            const [mode, setMode] = useState('menu'); // menu, create, join
+            const [mode, setMode] = useState('menu'); 
             const [roomIdInput, setRoomIdInput] = useState('');
             const [isCreating, setIsCreating] = useState(false);
             const [rules, setRules] = useState({ canCaptureUnrevealed: false, allowContinuousCapture: false });
-            const [gameType, setGameType] = useState('small'); // big or small
+            const [gameType, setGameType] = useState('small'); 
 
             const user = useFirebaseUser();
 
-            // Helper to generate short numeric ID
-            const generateRoomId = () => {
-                return Math.floor(100000 + Math.random() * 900000).toString();
-            };
+            // 如果 Firebase 沒配置，顯示錯誤 UI
+            if (!window.isFirebaseConfigured) {
+                return (
+                    <div className="min-h-screen bg-stone-900 flex flex-col items-center justify-center p-4 text-stone-100">
+                        <div className="bg-stone-800 p-8 rounded-xl border border-stone-600 max-w-md text-center">
+                            <div className="flex justify-center mb-4"><CloudOff size={64} className="text-stone-500"/></div>
+                            <h2 className="text-2xl font-bold mb-4">無法連接線上伺服器</h2>
+                            <p className="text-stone-400 mb-6">檢測到此檔案正於本機環境執行，且缺少 Firebase 配置金鑰。線上對戰功能需要後端支援。</p>
+                            <p className="text-stone-500 text-sm mb-6">若要啟用此功能，需在 index.html 中設定 window.__firebase_config。</p>
+                            <button onClick={onBack} className="bg-stone-600 px-6 py-2 rounded-lg hover:bg-stone-500 transition">返回主選單</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            const generateRoomId = () => Math.floor(100000 + Math.random() * 900000).toString();
 
             const createRoom = async () => {
                 if (!user) return;
                 setIsCreating(true);
                 try {
-                    // Init Small Board data for host
                     let initialBoardStr = "";
                     let initialDead = JSON.stringify({red:[], black:[]});
                     
@@ -746,7 +785,6 @@
                         for (let i = p.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
                         initialBoardStr = JSON.stringify(p);
                     } else {
-                        // Big Board Init
                         const b = Array(10).fill(null).map(() => Array(9).fill(null));
                         b[0] = ['b_rook', 'b_horse', 'b_elephant', 'b_advisor', 'b_king', 'b_advisor', 'b_elephant', 'b_horse', 'b_rook']; b[2][1] = 'b_cannon'; b[2][7] = 'b_cannon'; b[3][0] = 'b_pawn'; b[3][2] = 'b_pawn'; b[3][4] = 'b_pawn'; b[3][6] = 'b_pawn'; b[3][8] = 'b_pawn';
                         b[9] = ['r_rook', 'r_horse', 'r_elephant', 'r_advisor', 'r_king', 'r_advisor', 'r_elephant', 'r_horse', 'r_rook']; b[7][1] = 'r_cannon'; b[7][7] = 'r_cannon'; b[6][0] = 'r_pawn'; b[6][2] = 'r_pawn'; b[6][4] = 'r_pawn'; b[6][6] = 'r_pawn'; b[6][8] = 'r_pawn';
@@ -754,19 +792,17 @@
                     }
 
                     const roomId = generateRoomId();
-
-                    // Using setDoc to set specific short ID
                     await window.setDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', roomId), {
-                        createdAt: window.serverTimestamp ? window.serverTimestamp() : new Date(),
+                        createdAt: window.serverTimestamp(),
                         gameType,
                         rules: gameType === 'small' ? rules : {},
                         players: { host: user.uid },
                         status: 'waiting',
                         board: initialBoardStr,
-                        turn: 'red', // Standard Start
+                        turn: 'red',
                         deadPieces: initialDead,
                         continuousState: { active: false, pieceIdx: null },
-                        colors: gameType === 'big' ? { [user.uid]: 'red' } : {} // Big board host is red, small board undetermined
+                        colors: gameType === 'big' ? { [user.uid]: 'red' } : {} 
                     });
                     
                     onJoinGame({ roomId: roomId, gameType });
@@ -788,13 +824,10 @@
                             alert("房間已滿或遊戲進行中");
                             return;
                         }
-                        
-                        // Join
                         if (data.players.host !== user.uid) {
                             await window.updateDoc(roomRef, {
                                 'players.guest': user.uid,
                                 status: 'playing',
-                                // If big board, assign guest to black
                                 ...(data.gameType === 'big' ? { ['colors.' + user.uid]: 'black' } : {})
                             });
                         }
@@ -875,7 +908,7 @@
 
         const App = () => {
             const [view, setView] = useState('menu'); 
-            const [onlineConfig, setOnlineConfig] = useState(null); // { roomId, gameType }
+            const [onlineConfig, setOnlineConfig] = useState(null); 
 
             const handleSelectMode = (mode) => {
                 if (mode.type === 'online') setView('lobby');
@@ -902,3 +935,39 @@
     </script>
 </body>
 </html>
+```
+
+### 設定步驟說明 (請在取得 index.html 後執行)
+
+**步驟 1：建立 Firebase 專案**
+1.  前往 [Firebase Console (https://console.firebase.google.com/)](https://console.firebase.google.com/)。
+2.  點擊「新增專案」，輸入專案名稱 (例如 `my-xiangqi-game`)，依指示建立。
+
+**步驟 2：取得設定金鑰 (Config)**
+1.  進入專案後，在總覽頁面點擊 **Web 圖示** (類似 `</>`) 來新增應用程式。
+2.  輸入暱稱，點擊註冊。
+3.  您會看到一段 `const firebaseConfig = { ... };` 的程式碼。**複製 `{ ... }` 裡面的內容**。
+
+**步驟 3：啟用功能 (重要！不做會無法連線)**
+1.  **啟用登入 (Authentication)**：
+    * 在左側選單點擊 **Build > Authentication**。
+    * 點擊 **Get Started**。
+    * 在 Sign-in method 分頁中，找到 **Anonymous (匿名)**，點擊編輯並設為 **Enable (啟用)**，然後儲存。
+2.  **啟用資料庫 (Firestore)**：
+    * 在左側選單點擊 **Build > Firestore Database**。
+    * 點擊 **Create Database**。
+    * 選擇 **Start in test mode (以測試模式啟動)**，這樣才能在不寫規則的情況下進行連線。點擊 Next/Enable。
+
+**步驟 4：填入程式碼**
+1.  使用記事本或程式碼編輯器開啟下載的 `index.html`。
+2.  找到約第 48 行的 `const LOCAL_FIREBASE_CONFIG = null;`。
+3.  將您在步驟 2 複製的內容貼上去，看起來會像這樣：
+    ```javascript
+    const LOCAL_FIREBASE_CONFIG = {
+      apiKey: "AIzaSy...",
+      authDomain: "...",
+      projectId: "...",
+      storageBucket: "...",
+      messagingSenderId: "...",
+      appId: "..."
+    };
