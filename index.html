@@ -27,6 +27,11 @@
         .animate-flash-button {
             animation: flash-button 1.5s infinite ease-in-out;
         }
+        /* 滾動條美化 */
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.5); border-radius: 20px; }
+        
         body {
             font-family: "Noto Serif TC", serif;
             overscroll-behavior: none;
@@ -39,17 +44,14 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, addDoc, arrayUnion, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
         // ==============================================================================
         // 【本機執行設定區】
-        // 若您下載到桌面執行，請在此填入您的 Firebase Config 以啟用線上功能。
-        // 請確保您已在 Firebase Console (https://console.firebase.google.com/) 啟用：
-        // 1. Authentication (啟用「匿名/Anonymous」登入)
-        // 2. Firestore Database (啟用並設為「測試模式/Test Mode」以允許讀寫)
+        // 請在此填入您的 Firebase Config
         // ==============================================================================
         
-        const LOCAL_FIREBASE_CONFIG = {
+        const LOCAL_FIREBASE_CONFIG ={
   apiKey: "AIzaSyAmYRuvHms3e0fbUqZW8ReiBIYBCZzgWTY",
   authDomain: "chinesechess-826cb.firebaseapp.com",
   projectId: "chinesechess-826cb",
@@ -59,7 +61,7 @@
   measurementId: "G-TWRQ4R1V8Y"
 }; 
 
-        // 範例 (請將上方 null 替換為您的設定物件，如下所示):
+        // 範例 (請將上方 null 替換為您的設定物件):
         /*
         const LOCAL_FIREBASE_CONFIG = {
           apiKey: "AIzaSyDxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -72,19 +74,15 @@
         */
         // ==============================================================================
 
-        // --- Firebase Init with Safety Check ---
         let app, auth, db;
         let isFirebaseConfigured = false;
 
         try {
             let config = null;
-            // 優先使用本機設定
             if (LOCAL_FIREBASE_CONFIG) {
                 config = LOCAL_FIREBASE_CONFIG;
                 console.log("正在使用本機 Firebase 設定...");
-            } 
-            // 其次嘗試環境變數 (Canvas 線上環境)
-            else if (window.__firebase_config) {
+            } else if (window.__firebase_config) {
                 config = JSON.parse(window.__firebase_config);
             }
 
@@ -95,18 +93,16 @@
                 isFirebaseConfigured = true;
             }
         } catch (e) {
-            console.warn("Firebase 初始化失敗 (可能是設定錯誤):", e);
+            console.warn("Firebase 初始化失敗:", e);
         }
 
         const appId = window.__app_id || 'default-app-id';
 
-        // 將變數掛載到 window，並確保即使初始化失敗也有預設值以防崩潰
         window.db = db || null;
         window.auth = auth || null;
         window.appId = appId;
         window.isFirebaseConfigured = isFirebaseConfigured;
         
-        // 這些函式如果 Firebase 未初始化，設為空函式或拋出友善錯誤
         window.signInAnonymously = signInAnonymously;
         window.signInWithCustomToken = signInWithCustomToken;
         window.onAuthStateChanged = onAuthStateChanged;
@@ -117,19 +113,18 @@
         window.onSnapshot = onSnapshot;
         window.updateDoc = updateDoc;
         window.addDoc = addDoc;
+        window.arrayUnion = arrayUnion;
         window.serverTimestamp = serverTimestamp;
     </script>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useMemo } = React;
 
         // --- Firebase Helper Functions ---
         const useFirebaseUser = () => {
             const [user, setUser] = useState(null);
             useEffect(() => {
-                // 如果沒有配置 Firebase，直接不執行，避免錯誤
                 if (!window.isFirebaseConfigured || !window.auth) return;
-
                 const initAuth = async () => {
                     try {
                         if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
@@ -137,23 +132,16 @@
                         } else {
                             await window.signInAnonymously(window.auth);
                         }
-                    } catch (e) {
-                        console.error("Auth failed:", e);
-                    }
+                    } catch (e) { console.error("Firebase Auth Error:", e); }
                 };
                 initAuth();
-                
-                try {
-                    return window.onAuthStateChanged(window.auth, (u) => setUser(u));
-                } catch (e) { console.error("Auth listener failed", e); }
+                try { return window.onAuthStateChanged(window.auth, (u) => setUser(u)); } catch (e) { console.error("Auth listener failed", e); }
             }, []);
             return user;
         };
 
         // --- Icons ---
-        const IconWrapper = ({ children, size = 24, className = "" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
-        );
+        const IconWrapper = ({ children, size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>);
         const ArrowLeft = (p) => <IconWrapper {...p}><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></IconWrapper>;
         const RefreshCcw = (p) => <IconWrapper {...p}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></IconWrapper>;
         const Trophy = (p) => <IconWrapper {...p}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></IconWrapper>;
@@ -163,8 +151,9 @@
         const Check = (p) => <IconWrapper {...p}><path d="M20 6 9 17l-5-5"/></IconWrapper>;
         const X = (p) => <IconWrapper {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></IconWrapper>;
         const Users = (p) => <IconWrapper {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconWrapper>;
-        const Copy = (p) => <IconWrapper {...p}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></IconWrapper>;
         const CloudOff = (p) => <IconWrapper {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0 4 7h1.8a5 5 0 0 0 5.5 5.5"/><line x1="1" x2="23" y1="1" y2="23"/></IconWrapper>;
+        const MessageCircle = (p) => <IconWrapper {...p}><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z" /></IconWrapper>;
+        const Send = (p) => <IconWrapper {...p}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></IconWrapper>;
 
         // --- Constants & Logic ---
         const PIECE_SIZE_CLASS = "w-8 h-8 sm:w-12 sm:h-12 md:w-14 md:h-14";
@@ -174,13 +163,14 @@
             BLACK: { KING: {label:'將',value:7}, ADVISOR: {label:'士',value:6}, ELEPHANT: {label:'象',value:5}, ROOK: {label:'車',value:4}, HORSE: {label:'馬',value:3}, CANNON: {label:'包',value:2}, PAWN: {label:'卒',value:1} }
         };
 
+        // --- Helper Components ---
         const Piece = ({ type, color, hidden, onClick, selected, lastMove, disabled }) => {
             if (hidden) return <div onClick={onClick} className={`${PIECE_SIZE_CLASS} rounded-full bg-amber-700 border-4 border-amber-800 shadow-lg flex items-center justify-center cursor-pointer hover:scale-105 transition-transform relative pointer-events-auto`}><div className="w-full h-full rounded-full border border-white/20" /></div>;
             const isRed = color === 'red';
             const baseStyle = "rounded-full shadow-lg flex items-center justify-center cursor-pointer select-none relative transition-all duration-200 z-10 pointer-events-auto"; 
             const colorStyle = isRed ? "text-red-700 border-red-700" : "text-black border-black";
             const bgStyle = "bg-[#f5deb3]"; 
-            const opacityStyle = disabled ? "opacity-40 grayscale cursor-not-allowed" : "";
+            const opacityStyle = disabled ? "cursor-not-allowed" : ""; 
             const selectedStyle = selected ? "ring-4 ring-blue-500 scale-110 z-20 shadow-[0_0_20px_rgba(59,130,246,0.8)]" : (disabled ? "" : "hover:scale-105");
             const lastMoveStyle = lastMove ? "ring-2 ring-green-500" : "";
             return (
@@ -213,6 +203,111 @@
             return <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none animate-ping-slow"><div className={`${PIECE_SIZE_CLASS} rounded-full border-4 shadow-xl flex items-center justify-center ${isRed ? "text-red-700 border-red-700" : "text-black border-black"} bg-[#f5deb3] opacity-80 scale-125`}><span className="font-bold text-xl sm:text-2xl md:text-3xl font-serif">{piece.type}</span></div></div>;
         };
 
+        // --- Chat Component ---
+        const ChatWindow = ({ roomId, user }) => {
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState("");
+            const [isOpen, setIsOpen] = useState(false);
+            const messagesEndRef = useRef(null);
+
+            useEffect(() => {
+                if (!roomId || !window.isFirebaseConfigured) return;
+                const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', roomId), (doc) => {
+                    if (doc.exists() && doc.data().messages) {
+                        setMessages(doc.data().messages);
+                    }
+                });
+                return () => unsub();
+            }, [roomId]);
+
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [messages, isOpen]);
+
+            const sendMessage = async (e) => {
+                e.preventDefault();
+                if (!input.trim() || !user) return;
+                const msg = { uid: user.uid, text: input.trim(), timestamp: Date.now() };
+                await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', roomId), {
+                    messages: window.arrayUnion(msg)
+                });
+                setInput("");
+            };
+
+            return (
+                <div className={`fixed bottom-4 right-4 z-50 flex flex-col items-end transition-all ${isOpen ? 'w-80 h-96' : 'w-auto h-auto'}`}>
+                    {isOpen && (
+                        <div className="w-full h-full bg-stone-800/95 border border-stone-600 rounded-xl shadow-2xl flex flex-col overflow-hidden mb-2 backdrop-blur-sm">
+                            <div className="p-3 bg-stone-700 font-bold flex justify-between items-center border-b border-stone-600">
+                                <span>💬 對戰聊天室</span>
+                                <button onClick={() => setIsOpen(false)}><X size={18}/></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
+                                {messages.map((m, i) => {
+                                    const isMe = m.uid === user.uid;
+                                    return (
+                                        <div key={i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-sm break-words ${isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-stone-600 text-stone-200 rounded-bl-none'}`}>
+                                                {m.text}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                <div ref={messagesEndRef} />
+                            </div>
+                            <form onSubmit={sendMessage} className="p-2 bg-stone-700 flex gap-2">
+                                <input 
+                                    className="flex-1 bg-stone-900 border border-stone-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500" 
+                                    value={input} onChange={e => setInput(e.target.value)} placeholder="輸入訊息..." 
+                                />
+                                <button type="submit" className="bg-blue-600 p-2 rounded hover:bg-blue-500"><Send size={16}/></button>
+                            </form>
+                        </div>
+                    )}
+                    {!isOpen && (
+                        <button onClick={() => setIsOpen(true)} className="bg-blue-600 p-3 rounded-full shadow-lg hover:bg-blue-500 transition-transform hover:scale-110 relative">
+                            <MessageCircle />
+                        </button>
+                    )}
+                </div>
+            );
+        };
+
+        // --- Rock Paper Scissors Component ---
+        const RockPaperScissors = ({ myMove, onMove, status }) => {
+            const moves = [
+                { id: 'rock', label: '石頭', icon: <div className="text-3xl">✊</div> },
+                { id: 'paper', label: '布', icon: <div className="text-3xl">✋</div> },
+                { id: 'scissors', label: '剪刀', icon: <div className="text-3xl">✌️</div> }
+            ];
+
+            return (
+                <div className="absolute inset-0 z-50 bg-stone-900/95 flex flex-col items-center justify-center p-4">
+                    <h2 className="text-3xl font-bold text-[#eecfa1] mb-2">決定誰先開始</h2>
+                    <p className="text-stone-400 mb-8">{status === 'waiting' ? '等待對手出拳...' : (status === 'result' ? '結果判定中...' : '請出拳！')}</p>
+                    
+                    <div className="flex gap-4">
+                        {moves.map(m => (
+                            <button 
+                                key={m.id}
+                                onClick={() => onMove(m.id)}
+                                disabled={myMove !== null}
+                                className={`
+                                    w-24 h-24 rounded-full flex flex-col items-center justify-center border-4 transition-all
+                                    ${myMove === m.id ? 'bg-[#8b4513] border-[#eecfa1] scale-110 shadow-[0_0_20px_#eecfa1]' : 'bg-stone-700 border-stone-500 hover:bg-stone-600'}
+                                    ${myMove && myMove !== m.id ? 'opacity-30' : 'opacity-100'}
+                                `}
+                            >
+                                {m.icon}
+                                <span className="mt-1 font-bold">{m.label}</span>
+                            </button>
+                        ))}
+                    </div>
+                    {myMove && <div className="mt-8 text-xl text-stone-300 animate-pulse">已出拳，等待結果...</div>}
+                </div>
+            );
+        };
+
         // --- Big Board Logic ---
         const BigBoardGame = ({ onBack, onlineMode }) => {
             const getInitialBoard = () => {
@@ -233,23 +328,104 @@
             
             const user = useFirebaseUser();
             const [onlineState, setOnlineState] = useState(null);
+            const [myMove, setMyMove] = useState(null); 
+            const [iVotedRematch, setIVotedRematch] = useState(false);
 
             useEffect(() => {
                 if (onlineMode && onlineMode.roomId && window.isFirebaseConfigured) {
-                    try {
-                        const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
-                            if (doc.exists()) {
-                                const data = doc.data();
-                                setBoard(JSON.parse(data.board));
-                                setTurn(data.turn);
-                                setWinner(data.winner);
-                                setOnlineState(data);
+                    const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
+                        if (doc.exists()) {
+                            const data = doc.data();
+                            setBoard(JSON.parse(data.board));
+                            setTurn(data.turn);
+                            setWinner(data.winner);
+                            setOnlineState(data);
+                            
+                            // 本地狀態同步
+                            if (data.rpsState?.moves && user && !data.rpsState.moves[user.uid]) setMyMove(null);
+                            if (data.rpsState?.moves && user && data.rpsState.moves[user.uid]) setMyMove(data.rpsState.moves[user.uid]);
+                            if (data.rematchVotes && user && !data.rematchVotes[user.uid]) setIVotedRematch(false);
+                            
+                            // 主機端檢測是否需要進行 RPS 裁決 (Host Only)
+                            if (data.status === 'rps' && data.rpsState?.moves && user && data.players.host === user.uid) {
+                                const moves = data.rpsState.moves;
+                                const playerIds = Object.keys(moves);
+                                if (playerIds.length === 2 && !data.isResolvingRPS) {
+                                    resolveRPS(data);
+                                }
                             }
-                        });
-                        return () => unsub();
-                    } catch(e) { console.error("Snapshot error:", e); }
+                        }
+                    });
+                    return () => unsub();
                 }
             }, [onlineMode]);
+
+            // Host resolves RPS result to avoid race condition
+            const resolveRPS = async (data) => {
+                const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId);
+                // Mark as resolving to prevent loop
+                // (In a real app, this should be cloud function, but here host does it)
+                
+                const moves = data.rpsState.moves;
+                const [p1, p2] = Object.keys(moves);
+                const m1 = moves[p1], m2 = moves[p2];
+
+                if (m1 === m2) {
+                    // Draw
+                    setTimeout(async () => await window.updateDoc(roomRef, { 'rpsState.moves': {} }), 1500);
+                } else {
+                    const winnerId = ((m1 === 'rock' && m2 === 'scissors') || (m1 === 'scissors' && m2 === 'paper') || (m1 === 'paper' && m2 === 'rock')) ? p1 : p2;
+                    const loserId = winnerId === p1 ? p2 : p1;
+                    setTimeout(async () => {
+                        await window.updateDoc(roomRef, {
+                            status: 'playing',
+                            colors: { [winnerId]: 'red', [loserId]: 'black' },
+                            turn: 'red'
+                        });
+                    }, 1000);
+                }
+            };
+
+            const isMyTurn = () => {
+                if (!onlineMode) return true;
+                if (!onlineState) return false;
+                const myColor = (onlineState.colors && onlineState.colors[user?.uid]) || (onlineState.players.host === user?.uid ? 'red' : 'black');
+                return turn === myColor;
+            };
+
+            const handleRPSMove = async (move) => {
+                if (!user || !onlineMode) return;
+                setMyMove(move);
+                const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId);
+                // Atomic update to avoid race condition
+                await window.updateDoc(roomRef, {
+                    [`rpsState.moves.${user.uid}`]: move
+                });
+            };
+
+            const handleVoteRematch = async () => {
+                if (!user || !onlineMode) return;
+                setIVotedRematch(true);
+                const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId);
+                await window.updateDoc(roomRef, { [`rematchVotes.${user.uid}`]: true });
+
+                // Check if both voted (optimistic local check, but host or last voter triggers reset)
+                const currentVotes = { ...(onlineState.rematchVotes || {}), [user.uid]: true };
+                if (Object.keys(currentVotes).length === 2) {
+                    setTimeout(async () => {
+                        await window.updateDoc(roomRef, {
+                            board: JSON.stringify(getInitialBoard()),
+                            turn: 'red',
+                            winner: null,
+                            status: 'rps',
+                            rematchVotes: {},
+                            rpsState: { moves: {} },
+                            deadPieces: JSON.stringify({red:[], black:[]}),
+                            colors: {}
+                        });
+                    }, 500);
+                }
+            };
 
             const updateRemote = async (newBoard, newTurn, newWinner) => {
                 if (!onlineMode || !window.isFirebaseConfigured) return;
@@ -258,13 +434,6 @@
                     turn: newTurn,
                     winner: newWinner || null
                 });
-            };
-
-            const isMyTurn = () => {
-                if (!onlineMode) return true;
-                if (!onlineState) return false;
-                const myColor = onlineState.players.red === user?.uid ? 'red' : 'black';
-                return turn === myColor;
             };
 
             const getPieceInfo = (code) => {
@@ -363,11 +532,18 @@
             let statusText = "";
             if (winner) statusText = (winner === 'red' ? '紅方' : '黑方') + ' 獲勝!';
             else if (onlineMode && onlineState?.status === 'waiting') statusText = "等待對手加入...";
+            else if (onlineMode && onlineState?.status === 'rps') statusText = "剪刀石頭布...";
             else if (onlineMode && !isMyTurn()) statusText = "對手思考中...";
             else statusText = `輪到: ${turn === 'red' ? '紅方' : '黑方'}`;
 
             return (
-                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-100 p-2">
+                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-100 p-2 relative">
+                    {onlineMode && <ChatWindow roomId={onlineMode.roomId} user={user} />}
+                    
+                    {onlineMode && onlineState?.status === 'rps' && (
+                        <RockPaperScissors myMove={myMove} onMove={handleRPSMove} status={myMove ? 'waiting' : 'play'} />
+                    )}
+
                     <div className="flex w-full max-w-2xl justify-between items-center mb-4">
                         <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 bg-gray-200 rounded hover:bg-gray-300 transition text-sm sm:text-base"><ArrowLeft size={20} /> 返回</button>
                         <div className="text-xl sm:text-2xl font-bold text-stone-800 flex items-center gap-2">
@@ -394,6 +570,17 @@
                                 }))}
                             </div>
                         </div>
+                        {winner && onlineMode && (
+                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded z-50">
+                                <button 
+                                    onClick={handleVoteRematch}
+                                    disabled={iVotedRematch}
+                                    className={`px-8 py-4 text-2xl font-bold rounded shadow-xl transition transform hover:scale-105 ${iVotedRematch ? 'bg-green-600 text-white cursor-default' : 'bg-yellow-500 hover:bg-yellow-400 text-stone-900'}`}
+                                >
+                                    {iVotedRematch ? "等待對手確認..." : "再來一局"}
+                                </button>
+                            </div>
+                        )}
                     </div>
                     {onlineMode && <div className="mt-2 text-stone-500 text-sm">房間 ID: <span className="font-mono font-bold select-all">{onlineMode.roomId}</span></div>}
                 </div>
@@ -418,6 +605,8 @@
 
             const user = useFirebaseUser();
             const [onlineState, setOnlineState] = useState(null);
+            const [myMove, setMyMove] = useState(null); 
+            const [iVotedRematch, setIVotedRematch] = useState(false);
 
             // --- Online Logic ---
             useEffect(() => {
@@ -434,9 +623,22 @@
                                 setContinuousState(data.continuousState);
                                 setOnlineState(data);
                                 
+                                if (data.rpsState?.moves && user && !data.rpsState.moves[user.uid]) setMyMove(null);
+                                if (data.rpsState?.moves && user && data.rpsState.moves[user.uid]) setMyMove(data.rpsState.moves[user.uid]);
+                                if (data.rematchVotes && user && !data.rematchVotes[user.uid]) setIVotedRematch(false);
+
                                 if (data.colors && user) {
                                     if (data.colors[user.uid]) {
                                         setMyColor(data.colors[user.uid]);
+                                    }
+                                }
+                                
+                                // Host Resolves RPS (Same as BigBoard)
+                                if (data.status === 'rps' && data.rpsState?.moves && user && data.players.host === user.uid) {
+                                    const moves = data.rpsState.moves;
+                                    const playerIds = Object.keys(moves);
+                                    if (playerIds.length === 2) {
+                                        resolveRPS(data);
                                     }
                                 }
                             }
@@ -446,19 +648,81 @@
                 }
             }, [onlineMode, user]);
 
+            const resolveRPS = async (data) => {
+                const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId);
+                const moves = data.rpsState.moves;
+                const [p1, p2] = Object.keys(moves);
+                const m1 = moves[p1], m2 = moves[p2];
+
+                if (m1 === m2) {
+                    setTimeout(async () => await window.updateDoc(roomRef, { 'rpsState.moves': {} }), 1500);
+                } else {
+                    const winnerId = ((m1 === 'rock' && m2 === 'scissors') || (m1 === 'scissors' && m2 === 'paper') || (m1 === 'paper' && m2 === 'rock')) ? p1 : p2;
+                    setTimeout(async () => {
+                        await window.updateDoc(roomRef, {
+                            status: 'playing',
+                            firstPlayer: winnerId,
+                            turn: null
+                        });
+                    }, 1000);
+                }
+            };
+
+            const handleRPSMove = async (move) => {
+                if (!user || !onlineMode) return;
+                setMyMove(move);
+                const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId);
+                await window.updateDoc(roomRef, { [`rpsState.moves.${user.uid}`]: move });
+            };
+
+            const handleVoteRematch = async () => {
+                if (!user || !onlineMode) return;
+                setIVotedRematch(true);
+                const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId);
+                await window.updateDoc(roomRef, { [`rematchVotes.${user.uid}`]: true });
+
+                const currentVotes = { ...(onlineState.rematchVotes || {}), [user.uid]: true };
+                if (Object.keys(currentVotes).length === 2) {
+                    // Reshuffle logic
+                    const p = [];
+                    const add = (color, typeObj, count) => { for(let i=0; i<count; i++) p.push({ id: `${color}-${typeObj.label}-${i}`, color, type: typeObj.label, value: typeObj.value, revealed: false, dead: false }); };
+                    add('red', PIECES.RED.KING, 1); add('red', PIECES.RED.ADVISOR, 2); add('red', PIECES.RED.ELEPHANT, 2); add('red', PIECES.RED.ROOK, 2); add('red', PIECES.RED.HORSE, 2); add('red', PIECES.RED.CANNON, 2); add('red', PIECES.RED.PAWN, 5);
+                    add('black', PIECES.BLACK.KING, 1); add('black', PIECES.BLACK.ADVISOR, 2); add('black', PIECES.BLACK.ELEPHANT, 2); add('black', PIECES.BLACK.ROOK, 2); add('black', PIECES.BLACK.HORSE, 2); add('black', PIECES.BLACK.CANNON, 2); add('black', PIECES.BLACK.PAWN, 5);
+                    for (let i = p.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+
+                    setTimeout(async () => {
+                        await window.updateDoc(roomRef, {
+                            board: JSON.stringify(p),
+                            turn: null,
+                            winner: null,
+                            status: 'rps',
+                            rematchVotes: {},
+                            rpsState: { moves: {} },
+                            deadPieces: JSON.stringify({red:[], black:[]}),
+                            continuousState: { active: false, pieceIdx: null },
+                            colors: {}
+                        });
+                    }, 500);
+                }
+            };
+
             const showMessage = (msg) => { setMessage(msg); setTimeout(() => setMessage(null), 2000); };
 
             const canIAct = () => {
                 if (!onlineMode) return true; 
                 if (onlineState?.status !== 'playing') return false;
-                if (!turn) return true; 
+                if (!turn) {
+                    return onlineState.firstPlayer === user.uid;
+                }
                 if (myColor && turn === myColor) return true;
                 return false;
             };
 
             const updateRemote = async (updates) => {
                 if (!onlineMode || !window.isFirebaseConfigured) return;
-                await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), updates);
+                try {
+                    await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), updates);
+                } catch(e) { console.error("Update failed:", e); }
             };
 
             const initGame = async (customRules = rules) => {
@@ -492,6 +756,7 @@
                 return dist === 1;
             };
             const canEat = (attacker, defender) => {
+                if (attacker.color === defender.color) return false;
                 if (attacker.value === 2) return true;
                 if ((attacker.value === 1 && defender.value === 7)) return true;
                 if ((attacker.value === 7 && defender.value === 1)) return false;
@@ -526,8 +791,10 @@
 
                 const targetPiece = board[index];
 
+                // --- 1. Flip (Reveal) ---
                 if (targetPiece && !targetPiece.revealed) {
                     if (selectedIdx !== null) {
+                        // Capture Unrevealed Logic
                         if (rules.canCaptureUnrevealed) {
                             const attacker = board[selectedIdx];
                             const isCannon = attacker.value === 2;
@@ -538,6 +805,7 @@
                             if (!validMove) { showMessage(moveError); return; }
 
                             const revealedTarget = { ...targetPiece, revealed: true };
+                            // Check valid capture
                             if (revealedTarget.color === turn) {
                                 const newBoard = [...board]; newBoard[index] = revealedTarget;
                                 await updateGameState(newBoard, null, "不能吃自己的棋！", true);
@@ -554,17 +822,21 @@
                             showMessage("規則：不能吃未翻開的棋子"); return;
                         }
                     } else {
+                        // Just Flip
                         const newBoard = [...board];
                         newBoard[index] = { ...targetPiece, revealed: true };
+                        
                         let updates = { board: JSON.stringify(newBoard) };
                         let nextTurn = turn;
 
+                        // Determine Colors if first flip
                         if (!turn) {
                             const flippedColor = newBoard[index].color;
                             nextTurn = flippedColor === 'red' ? 'black' : 'red';
                             updates.turn = nextTurn;
                             
                             if (onlineMode) {
+                                // First player (who flipped) gets 'flippedColor'
                                 const opponentId = Object.values(onlineState.players).find(id => id !== user.uid);
                                 const newColors = {
                                     [user.uid]: flippedColor,
@@ -588,20 +860,30 @@
                     }
                 }
 
+                // --- 2. Select Own Piece ---
                 if (targetPiece && targetPiece.revealed && targetPiece.color === turn) {
                     if (onlineMode && myColor && myColor !== turn) return; 
                     setSelectedIdx(index); setMessage(null); return;
                 }
 
+                // --- 3. Move or Attack ---
                 if (selectedIdx !== null) {
                     const attacker = board[selectedIdx];
                     const isCannon = attacker.value === 2;
                     if (!targetPiece) {
+                        // Move to empty
+                        // 【關鍵修正】連吃模式下，禁止移動到空位
+                        if (continuousState.active) {
+                            showMessage("連吃中：不可移動至空位，請繼續吃子或結束回合");
+                            return;
+                        }
+
                         if (canMove(selectedIdx, index, false)) {
                             const newBoard = [...board]; newBoard[index] = attacker; newBoard[selectedIdx] = null;
-                            await updateGameState(newBoard, null, null, true); 
+                            await updateGameState(newBoard, null, null, true); // End turn normally
                         } else { showMessage("無效的移動"); }
                     } else if (targetPiece.revealed && targetPiece.color !== turn) {
+                        // Attack Revealed
                         let valid = false, err = "無法吃子";
                         if (isCannon) { if (canMove(selectedIdx, index, true)) valid = true; else err = "炮需隔一子才能吃子"; }
                         else { if (canMove(selectedIdx, index, false)) { if (canEat(attacker, targetPiece)) valid = true; else err = "階級不足"; } else err = "距離過遠"; }
@@ -647,12 +929,14 @@
                 const deadPiece = { ...victim, revealed: true };
                 const newDeadPieces = { ...deadPieces, [deadPiece.color]: [...deadPieces[deadPiece.color], deadPiece] };
 
+                // Check Win
                 const enemyColor = turn === 'red' ? 'black' : 'red';
                 const remaining = newBoard.filter(p => p && p.color === enemyColor && !p.dead);
                 let newWinner = null;
                 if (remaining.length === 0) newWinner = turn;
 
                 if (rules.allowContinuousCapture && !newWinner) {
+                    // Continuous Logic
                     const newState = { active: true, pieceIdx: toIdx };
                     if (onlineMode) {
                         await updateRemote({
@@ -668,6 +952,7 @@
                         showMessage(`吃掉 ${victim.type}！連吃中`);
                     }
                 } else {
+                    // Normal End Turn
                     let updates = { board: JSON.stringify(newBoard), deadPieces: JSON.stringify(newDeadPieces), winner: newWinner || null };
                     if (!newWinner) {
                         updates.turn = turn === 'red' ? 'black' : 'red';
@@ -685,14 +970,24 @@
                 }
             };
 
+            // --- Render ---
             let statusText = "";
             if (winner) statusText = (winner === 'red' ? '紅方' : '黑方') + ' 獲勝!';
             else if (onlineMode && onlineState?.status === 'waiting') statusText = "等待對手加入...";
+            else if (onlineMode && onlineState?.status === 'rps') statusText = "剪刀石頭布...";
             else if (onlineMode && !canIAct()) statusText = "對手思考中...";
+            else if (!turn && onlineMode) statusText = (canIAct() ? "請翻牌決定顏色" : "等待對手翻牌"); // Special Small Board state
             else statusText = `輪到: ${turn === 'red' ? '紅方' : '黑方'}`;
 
             return (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-stone-800 p-2 relative">
+                    {onlineMode && <ChatWindow roomId={onlineMode.roomId} user={user} />}
+                    
+                    {onlineMode && onlineState?.status === 'rps' && (
+                        <RockPaperScissors myMove={myMove} onMove={handleRPSMove} status={myMove ? 'waiting' : 'play'} />
+                    )}
+
+                    {/* Setup Modal (Local Only) */}
                     {showSetup && !onlineMode && (
                         <div className="absolute inset-0 bg-stone-900/90 z-50 flex items-center justify-center p-4">
                             <div className="bg-[#eecfa1] p-6 sm:p-8 rounded-xl shadow-2xl max-w-sm w-full border-4 border-[#8b4513] text-stone-900">
@@ -726,7 +1021,12 @@
                                 let disabled = false;
                                 if (onlineMode && onlineState?.status !== 'playing') disabled = true;
                                 if (onlineMode && !canIAct()) disabled = true;
-                                if (continuousState.active && continuousState.pieceIdx !== i && !(piece && !piece.revealed)) disabled = true;
+                                if (continuousState.active) {
+                                    const isMyPiece = piece && piece.revealed && piece.color === turn;
+                                    if (isMyPiece && i !== continuousState.pieceIdx) {
+                                        disabled = true;
+                                    }
+                                }
                                 
                                 return (
                                     <div key={i} className="w-10 h-10 sm:w-14 sm:h-14 md:w-20 md:h-20 flex items-center justify-center relative">
@@ -738,6 +1038,17 @@
                             })}
                         </div>
                         <div className="order-3 w-full xl:w-auto flex justify-center"><DeadPile title="黑方陣亡" pieces={deadPieces.black} isRed={false} /></div>
+                        {winner && onlineMode && (
+                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded z-50">
+                                <button 
+                                    onClick={handleVoteRematch}
+                                    disabled={iVotedRematch}
+                                    className={`px-8 py-4 text-2xl font-bold rounded shadow-xl transition transform hover:scale-105 ${iVotedRematch ? 'bg-green-600 text-white cursor-default' : 'bg-yellow-500 hover:bg-yellow-400 text-stone-900'}`}
+                                >
+                                    {iVotedRematch ? "等待對手確認..." : "再來一局"}
+                                </button>
+                            </div>
+                        )}
                     </div>
                     {onlineMode && <div className="mt-2 text-stone-500 text-sm">房間 ID: <span className="font-mono font-bold select-all">{onlineMode.roomId}</span></div>}
                 </div>
@@ -802,13 +1113,15 @@
                         turn: 'red',
                         deadPieces: initialDead,
                         continuousState: { active: false, pieceIdx: null },
-                        colors: gameType === 'big' ? { [user.uid]: 'red' } : {} 
+                        rpsState: { moves: {} }, // Init RPS state
+                        colors: gameType === 'big' ? { [user.uid]: 'red' } : {},
+                        messages: [] // Chat messages
                     });
                     
                     onJoinGame({ roomId: roomId, gameType });
                 } catch (e) {
                     console.error(e);
-                    alert("建立房間失敗");
+                    alert("建立房間失敗: " + e.code + " (" + e.message + ")\n請檢查 Firebase Firestore 規則是否設為 Test Mode。");
                 }
                 setIsCreating(false);
             };
@@ -820,6 +1133,13 @@
                     const snap = await window.getDoc(roomRef);
                     if (snap.exists()) {
                         const data = snap.data();
+                        
+                        if (data.players.host === user.uid) {
+                            alert("⚠️ 您是此房間的房主！\n\n若要測試對戰，請開啟「無痕視窗 (Incognito)」或使用「另一個瀏覽器」來模擬第二位玩家加入。");
+                            onJoinGame({ roomId: roomIdInput, gameType: data.gameType });
+                            return;
+                        }
+
                         if (data.status !== 'waiting' && (!data.players.guest || data.players.guest !== user.uid) && data.players.host !== user.uid) {
                             alert("房間已滿或遊戲進行中");
                             return;
@@ -827,17 +1147,17 @@
                         if (data.players.host !== user.uid) {
                             await window.updateDoc(roomRef, {
                                 'players.guest': user.uid,
-                                status: 'playing',
+                                status: 'rps', // Start RPS phase
                                 ...(data.gameType === 'big' ? { ['colors.' + user.uid]: 'black' } : {})
                             });
                         }
                         onJoinGame({ roomId: roomIdInput, gameType: data.gameType });
                     } else {
-                        alert("房間不存在");
+                        alert("房間不存在 (或無權限存取)");
                     }
                 } catch (e) {
                     console.error(e);
-                    alert("加入失敗");
+                    alert("加入失敗: " + e.code + "\n請確認網路連線或 Firebase 權限。");
                 }
             };
 
@@ -935,39 +1255,3 @@
     </script>
 </body>
 </html>
-```
-
-### 設定步驟說明 (請在取得 index.html 後執行)
-
-**步驟 1：建立 Firebase 專案**
-1.  前往 [Firebase Console (https://console.firebase.google.com/)](https://console.firebase.google.com/)。
-2.  點擊「新增專案」，輸入專案名稱 (例如 `my-xiangqi-game`)，依指示建立。
-
-**步驟 2：取得設定金鑰 (Config)**
-1.  進入專案後，在總覽頁面點擊 **Web 圖示** (類似 `</>`) 來新增應用程式。
-2.  輸入暱稱，點擊註冊。
-3.  您會看到一段 `const firebaseConfig = { ... };` 的程式碼。**複製 `{ ... }` 裡面的內容**。
-
-**步驟 3：啟用功能 (重要！不做會無法連線)**
-1.  **啟用登入 (Authentication)**：
-    * 在左側選單點擊 **Build > Authentication**。
-    * 點擊 **Get Started**。
-    * 在 Sign-in method 分頁中，找到 **Anonymous (匿名)**，點擊編輯並設為 **Enable (啟用)**，然後儲存。
-2.  **啟用資料庫 (Firestore)**：
-    * 在左側選單點擊 **Build > Firestore Database**。
-    * 點擊 **Create Database**。
-    * 選擇 **Start in test mode (以測試模式啟動)**，這樣才能在不寫規則的情況下進行連線。點擊 Next/Enable。
-
-**步驟 4：填入程式碼**
-1.  使用記事本或程式碼編輯器開啟下載的 `index.html`。
-2.  找到約第 48 行的 `const LOCAL_FIREBASE_CONFIG = null;`。
-3.  將您在步驟 2 複製的內容貼上去，看起來會像這樣：
-    ```javascript
-    const LOCAL_FIREBASE_CONFIG = {
-      apiKey: "AIzaSy...",
-      authDomain: "...",
-      projectId: "...",
-      storageBucket: "...",
-      messagingSenderId: "...",
-      appId: "..."
-    };
