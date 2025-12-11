@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中國象棋 (大盤 & 小盤) - 線上對戰版</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        @keyframes ping-slow {
+            0% { transform: scale(1); opacity: 0.8; }
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .animate-ping-slow {
+            animation: ping-slow 0.8s cubic-bezier(0, 0, 0.2, 1) forwards;
+        }
+        @keyframes flash-button {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.7); }
+            50% { transform: scale(1.05); box-shadow: 0 0 20px 5px rgba(234, 88, 12, 0.5); }
+        }
+        .animate-flash-button {
+            animation: flash-button 1.5s infinite ease-in-out;
+        }
+        body {
+            font-family: "Noto Serif TC", serif;
+            overscroll-behavior: none;
+        }
+    </style>
+</head>
+<body class="bg-stone-900 text-stone-100">
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        // --- Firebase Init ---
+        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = window.__app_id || 'default-app-id';
+
+        // Global instances for React to access
+        window.db = db;
+        window.auth = auth;
+        window.appId = appId;
+        window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.collection = collection;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.getDoc = getDoc;
+        window.onSnapshot = onSnapshot;
+        window.updateDoc = updateDoc;
+        window.addDoc = addDoc;
+        window.serverTimestamp = serverTimestamp;
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Firebase Helper Functions (Accessed via window due to module scope) ---
+        const useFirebaseUser = () => {
+            const [user, setUser] = useState(null);
+            useEffect(() => {
+                const initAuth = async () => {
+                    if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
+                        await window.signInWithCustomToken(window.auth, window.__initial_auth_token);
+                    } else {
+                        await window.signInAnonymously(window.auth);
+                    }
+                };
+                initAuth();
+                return window.onAuthStateChanged(window.auth, (u) => setUser(u));
+            }, []);
+            return user;
+        };
+
+        // --- Icons ---
+        const IconWrapper = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const ArrowLeft = (p) => <IconWrapper {...p}><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></IconWrapper>;
+        const RefreshCcw = (p) => <IconWrapper {...p}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></IconWrapper>;
+        const Trophy = (p) => <IconWrapper {...p}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></IconWrapper>;
+        const Info = (p) => <IconWrapper {...p}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></IconWrapper>;
+        const AlertCircle = (p) => <IconWrapper {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></IconWrapper>;
+        const Settings = (p) => <IconWrapper {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.35a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></IconWrapper>;
+        const Check = (p) => <IconWrapper {...p}><path d="M20 6 9 17l-5-5"/></IconWrapper>;
+        const X = (p) => <IconWrapper {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></IconWrapper>;
+        const Users = (p) => <IconWrapper {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconWrapper>;
+        const Copy = (p) => <IconWrapper {...p}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></IconWrapper>;
+
+        // --- Constants & Logic ---
+        const PIECE_SIZE_CLASS = "w-8 h-8 sm:w-12 sm:h-12 md:w-14 md:h-14";
+        const BOARD_COLOR = "bg-[#eecfa1]";
+        const PIECES = {
+            RED: { KING: {label:'帥',value:7}, ADVISOR: {label:'仕',value:6}, ELEPHANT: {label:'相',value:5}, ROOK: {label:'俥',value:4}, HORSE: {label:'傌',value:3}, CANNON: {label:'炮',value:2}, PAWN: {label:'兵',value:1} },
+            BLACK: { KING: {label:'將',value:7}, ADVISOR: {label:'士',value:6}, ELEPHANT: {label:'象',value:5}, ROOK: {label:'車',value:4}, HORSE: {label:'馬',value:3}, CANNON: {label:'包',value:2}, PAWN: {label:'卒',value:1} }
+        };
+
+        const Piece = ({ type, color, hidden, onClick, selected, lastMove, disabled }) => {
+            if (hidden) return <div onClick={onClick} className={`${PIECE_SIZE_CLASS} rounded-full bg-amber-700 border-4 border-amber-800 shadow-lg flex items-center justify-center cursor-pointer hover:scale-105 transition-transform relative pointer-events-auto`}><div className="w-full h-full rounded-full border border-white/20" /></div>;
+            const isRed = color === 'red';
+            const baseStyle = "rounded-full shadow-lg flex items-center justify-center cursor-pointer select-none relative transition-all duration-200 z-10 pointer-events-auto"; 
+            const colorStyle = isRed ? "text-red-700 border-red-700" : "text-black border-black";
+            const bgStyle = "bg-[#f5deb3]"; 
+            const opacityStyle = disabled ? "opacity-40 grayscale cursor-not-allowed" : "";
+            const selectedStyle = selected ? "ring-4 ring-blue-500 scale-110 z-20 shadow-[0_0_20px_rgba(59,130,246,0.8)]" : (disabled ? "" : "hover:scale-105");
+            const lastMoveStyle = lastMove ? "ring-2 ring-green-500" : "";
+            return (
+                <div className={`relative group flex items-center justify-center pointer-events-none w-full h-full ${opacityStyle}`}>
+                    {selected && <div className="absolute inset-0 rounded-full animate-ping bg-blue-400 opacity-30 scale-125 z-0 pointer-events-none"></div>}
+                    <div onClick={disabled ? undefined : onClick} className={`${PIECE_SIZE_CLASS} ${baseStyle} ${bgStyle} border-4 ${colorStyle} ${selectedStyle} ${lastMoveStyle}`} style={{boxShadow: selected ? "0 0 15px rgba(59,130,246,0.6)" : "inset 0 0 10px rgba(0,0,0,0.2), 2px 2px 5px rgba(0,0,0,0.4)"}}>
+                        <div className="absolute inset-1 border border-dashed opacity-30 rounded-full border-current"></div>
+                        <span className="font-bold text-xl sm:text-2xl md:text-3xl font-serif">{type}</span>
+                    </div>
+                </div>
+            );
+        };
+
+        const DeadPile = ({ title, pieces, isRed }) => (
+            <div className="flex flex-col items-center gap-2 bg-stone-900/40 p-3 rounded-xl border border-stone-700/50 w-full xl:w-40 transition-all backdrop-blur-sm">
+                <div className={`text-base font-bold tracking-widest border-b border-stone-700/50 pb-1 w-full text-center ${isRed ? 'text-red-400' : 'text-stone-300'}`}>{title} <span className="text-xs opacity-50">({pieces.length})</span></div>
+                <div className="flex flex-wrap gap-2 justify-center content-start min-h-[60px]">
+                    {pieces.length === 0 ? <div className="text-stone-600 text-sm py-4 italic opacity-50">暫無</div> : pieces.map((p, i) => (
+                        <div key={i} className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-4 shadow-sm flex items-center justify-center relative bg-[#eecfa1] ${p.color === 'red' ? 'border-red-800 text-red-800' : 'border-black text-black'} opacity-90`}>
+                            <div className="absolute inset-0 rounded-full bg-black/10"></div><span className="font-bold text-lg md:text-xl font-serif select-none">{p.type}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const CaptureEffect = ({ piece }) => {
+            if (!piece) return null;
+            const isRed = piece.color === 'red';
+            return <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none animate-ping-slow"><div className={`${PIECE_SIZE_CLASS} rounded-full border-4 shadow-xl flex items-center justify-center ${isRed ? "text-red-700 border-red-700" : "text-black border-black"} bg-[#f5deb3] opacity-80 scale-125`}><span className="font-bold text-xl sm:text-2xl md:text-3xl font-serif">{piece.type}</span></div></div>;
+        };
+
+        // --- Big Board Logic ---
+        const BigBoardGame = ({ onBack, onlineMode }) => {
+            const getInitialBoard = () => {
+                const b = Array(10).fill(null).map(() => Array(9).fill(null));
+                b[0] = ['b_rook', 'b_horse', 'b_elephant', 'b_advisor', 'b_king', 'b_advisor', 'b_elephant', 'b_horse', 'b_rook'];
+                b[2][1] = 'b_cannon'; b[2][7] = 'b_cannon';
+                b[3][0] = 'b_pawn'; b[3][2] = 'b_pawn'; b[3][4] = 'b_pawn'; b[3][6] = 'b_pawn'; b[3][8] = 'b_pawn';
+                b[9] = ['r_rook', 'r_horse', 'r_elephant', 'r_advisor', 'r_king', 'r_advisor', 'r_elephant', 'r_horse', 'r_rook'];
+                b[7][1] = 'r_cannon'; b[7][7] = 'r_cannon';
+                b[6][0] = 'r_pawn'; b[6][2] = 'r_pawn'; b[6][4] = 'r_pawn'; b[6][6] = 'r_pawn'; b[6][8] = 'r_pawn';
+                return b;
+            };
+
+            const [board, setBoard] = useState(getInitialBoard());
+            const [turn, setTurn] = useState('red'); 
+            const [selected, setSelected] = useState(null); 
+            const [winner, setWinner] = useState(null);
+            
+            // Online Specific State
+            const user = useFirebaseUser();
+            const [onlineState, setOnlineState] = useState(null);
+
+            useEffect(() => {
+                if (onlineMode && onlineMode.roomId) {
+                    const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
+                        if (doc.exists()) {
+                            const data = doc.data();
+                            setBoard(JSON.parse(data.board));
+                            setTurn(data.turn);
+                            setWinner(data.winner);
+                            setOnlineState(data);
+                        }
+                    });
+                    return () => unsub();
+                }
+            }, [onlineMode]);
+
+            // Helper to update Firebase
+            const updateRemote = async (newBoard, newTurn, newWinner) => {
+                if (!onlineMode) return;
+                await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), {
+                    board: JSON.stringify(newBoard),
+                    turn: newTurn,
+                    winner: newWinner || null
+                });
+            };
+
+            // Check if it's my turn in online mode
+            const isMyTurn = () => {
+                if (!onlineMode) return true;
+                if (!onlineState) return false;
+                const myColor = onlineState.players.red === user?.uid ? 'red' : 'black';
+                return turn === myColor;
+            };
+
+            const getPieceInfo = (code) => {
+                if (!code) return null;
+                const [cShort, t] = code.split('_');
+                const c = cShort === 'r' ? 'red' : 'black';
+                const s = c === 'red' ? PIECES.RED : PIECES.BLACK;
+                let l = '';
+                if (t === 'king') l = s.KING.label; else if (t === 'advisor') l = s.ADVISOR.label; else if (t === 'elephant') l = s.ELEPHANT.label;
+                else if (t === 'horse') l = s.HORSE.label; else if (t === 'rook') l = s.ROOK.label; else if (t === 'cannon') l = s.CANNON.label;
+                else if (t === 'pawn') l = s.PAWN.label;
+                return { color: c, type: l, label: l };
+            };
+
+            const isValidMove = (startX, startY, endX, endY, pieceCode, currentBoard) => {
+                const dx = endX - startX, dy = endY - startY, absDx = Math.abs(dx), absDy = Math.abs(dy);
+                const [c, type] = pieceCode.split('_');
+                const isRed = c === 'r';
+                const target = currentBoard[endY][endX];
+                if (target && target.startsWith(c)) return false;
+
+                switch (type) {
+                    case 'king': return (absDx + absDy === 1) && (endX >= 3 && endX <= 5) && (isRed ? endY >= 7 : endY <= 2);
+                    case 'advisor': return (absDx === 1 && absDy === 1) && (endX >= 3 && endX <= 5) && (isRed ? endY >= 7 : endY <= 2);
+                    case 'elephant': 
+                        if (absDx !== 2 || absDy !== 2) return false;
+                        if (isRed && endY < 5) return false; if (!isRed && endY > 4) return false;
+                        return !currentBoard[(startY + endY) / 2][(startX + endX) / 2];
+                    case 'horse': 
+                        if (!((absDx === 1 && absDy === 2) || (absDx === 2 && absDy === 1))) return false;
+                        return absDx === 2 ? !currentBoard[startY][(startX + endX) / 2] : !currentBoard[(startY + endY) / 2][startX];
+                    case 'rook': 
+                        if (startX !== endX && startY !== endY) return false;
+                        if (startX === endX) { for(let i = Math.min(startY, endY) + 1; i < Math.max(startY, endY); i++) if(currentBoard[i][startX]) return false; }
+                        else { for(let i = Math.min(startX, endX) + 1; i < Math.max(startX, endX); i++) if(currentBoard[startY][i]) return false; }
+                        return true;
+                    case 'cannon': 
+                        if (startX !== endX && startY !== endY) return false;
+                        let obs = 0;
+                        if (startX === endX) { for(let i = Math.min(startY, endY) + 1; i < Math.max(startY, endY); i++) if(currentBoard[i][startX]) obs++; }
+                        else { for(let i = Math.min(startX, endX) + 1; i < Math.max(startX, endX); i++) if(currentBoard[startY][i]) obs++; }
+                        return target ? obs === 1 : obs === 0;
+                    case 'pawn': 
+                        if (absDx + absDy !== 1) return false;
+                        if (isRed) { if (endY > startY) return false; if (startY >= 5 && startX !== endX) return false; }
+                        else { if (endY < startY) return false; if (startY <= 4 && startX !== endX) return false; }
+                        return true;
+                    default: return false;
+                }
+            };
+
+            const handleSquareClick = async (x, y) => {
+                if (winner) return;
+                // Online check: must be playing and my turn
+                if (onlineMode) {
+                    if (onlineState?.status !== 'playing') return;
+                    if (!isMyTurn()) return;
+                }
+
+                const clickedPiece = board[y][x];
+                const isMyPiece = clickedPiece && clickedPiece.startsWith(turn === 'red' ? 'r' : 'b');
+
+                if (isMyPiece) {
+                    setSelected({ x, y });
+                    return;
+                }
+
+                if (selected) {
+                    const pieceToMove = board[selected.y][selected.x];
+                    if (isValidMove(selected.x, selected.y, x, y, pieceToMove, board)) {
+                        const newBoard = board.map(r => [...r]);
+                        let newWinner = null;
+                        if (clickedPiece && clickedPiece.includes('king')) {
+                            newWinner = turn;
+                            setWinner(turn);
+                        }
+                        newBoard[y][x] = pieceToMove;
+                        newBoard[selected.y][selected.x] = null;
+                        const nextTurn = turn === 'red' ? 'black' : 'red';
+
+                        if (onlineMode) {
+                            await updateRemote(newBoard, nextTurn, newWinner);
+                        } else {
+                            setBoard(newBoard);
+                            setTurn(nextTurn);
+                        }
+                        setSelected(null);
+                    }
+                }
+            };
+
+            const resetGame = async () => {
+                if (onlineMode) return; // Online reset handled differently or disabled
+                setBoard(getInitialBoard()); setTurn('red'); setWinner(null); setSelected(null);
+            };
+
+            // Calculate status text
+            let statusText = "";
+            if (winner) statusText = (winner === 'red' ? '紅方' : '黑方') + ' 獲勝!';
+            else if (onlineMode && onlineState?.status === 'waiting') statusText = "等待對手加入...";
+            else if (onlineMode && !isMyTurn()) statusText = "對手思考中...";
+            else statusText = `輪到: ${turn === 'red' ? '紅方' : '黑方'}`;
+
+            return (
+                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-100 p-2">
+                    <div className="flex w-full max-w-2xl justify-between items-center mb-4">
+                        <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 bg-gray-200 rounded hover:bg-gray-300 transition text-sm sm:text-base"><ArrowLeft size={20} /> 返回</button>
+                        <div className="text-xl sm:text-2xl font-bold text-stone-800 flex items-center gap-2">
+                            {winner && <Trophy className="text-yellow-600"/>}
+                            {statusText}
+                        </div>
+                        {!onlineMode && <button onClick={resetGame} className="p-2 bg-gray-200 rounded hover:bg-gray-300 transition"><RefreshCcw size={20} /></button>}
+                        {onlineMode && <div className="w-10"></div>}
+                    </div>
+                    {/* Board Rendering */}
+                    <div className={`relative ${BOARD_COLOR} p-2 sm:p-4 rounded shadow-2xl select-none`} style={{ width: '100%', maxWidth: '600px', aspectRatio: '9/10' }}>
+                        <div className="w-full h-full border-2 border-stone-800 relative grid grid-rows-10 grid-cols-9">
+                            <div className="absolute top-[44.44%] left-0 w-full h-[11.11%] flex items-center justify-center pointer-events-none z-0"><div className="absolute top-2 bottom-2 left-2 right-2 border-t-2 border-b-2 border-stone-800/80 bg-stone-500/10"></div><div className="relative z-10 flex w-full justify-around px-8 sm:px-16 text-stone-800/60 font-serif text-2xl sm:text-4xl font-bold tracking-widest"><span>楚 河</span><span>漢 界</span></div></div>
+                            <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" style={{ opacity: 0.3 }}><line x1="37.5%" y1="0%" x2="62.5%" y2="22.22%" stroke="black" strokeWidth="2" /><line x1="62.5%" y1="0%" x2="37.5%" y2="22.22%" stroke="black" strokeWidth="2" /><line x1="37.5%" y1="77.78%" x2="62.5%" y2="100%" stroke="black" strokeWidth="2" /><line x1="62.5%" y1="77.78%" x2="37.5%" y2="100%" stroke="black" strokeWidth="2" /></svg>
+                            {Array(9).fill(0).map((_, x) => (<div key={`v-${x}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: `${x * 12.5}%` }}><div className="absolute top-0 h-[44.44%] border-l border-stone-800 w-0"></div><div className="absolute bottom-0 h-[44.44%] border-l border-stone-800 w-0"></div>{(x === 0 || x === 8) && <div className="absolute top-[44.44%] h-[11.11%] border-l border-stone-800 w-0"></div>}</div>))}
+                            {Array(10).fill(0).map((_, y) => (<div key={`h-${y}`} className="absolute left-0 right-0 border-t border-stone-800" style={{ top: `${y * 11.1111}%` }}></div>))}
+                            <div className="absolute inset-0 z-10">
+                                {board.map((row, y) => row.map((code, x) => {
+                                    const info = getPieceInfo(code);
+                                    const isSelected = selected && selected.x === x && selected.y === y;
+                                    const style = { position: 'absolute', left: `${x * 12.5}%`, top: `${y * 11.1111}%`, width: '12.5%', height: '11.1111%', transform: 'translate(-50%, -50%)', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+                                    if (!info && !isSelected) return <div key={`${x}-${y}`} style={style} onClick={() => handleSquareClick(x, y)} className="cursor-pointer z-0" />;
+                                    if (!info) return <div key={`${x}-${y}`} style={style} onClick={() => handleSquareClick(x, y)} className="cursor-pointer z-0" />;
+                                    return <div key={`${x}-${y}`} style={style} className="z-10 pointer-events-none"><Piece type={info.label} color={info.color} selected={isSelected} onClick={() => handleSquareClick(x, y)} /></div>;
+                                }))}
+                            </div>
+                        </div>
+                    </div>
+                    {onlineMode && <div className="mt-2 text-stone-500 text-sm">房間 ID: <span className="font-mono font-bold select-all">{onlineMode.roomId}</span></div>}
+                </div>
+            );
+        };
+
+        // --- Small Board Logic ---
+        const SmallBoardGame = ({ onBack, onlineMode }) => {
+            const [pieces, setPieces] = useState([]);
+            const [board, setBoard] = useState(Array(32).fill(null)); 
+            const [turn, setTurn] = useState(null); 
+            const [selectedIdx, setSelectedIdx] = useState(null);
+            const [winner, setWinner] = useState(null);
+            const [myColor, setMyColor] = useState(null); // Local player's color role (in online mode, determined by Firestore)
+            const [deadPieces, setDeadPieces] = useState({ red: [], black: [] });
+            const [message, setMessage] = useState(null); 
+            const [captureAnim, setCaptureAnim] = useState(null); 
+            
+            const [showSetup, setShowSetup] = useState(!onlineMode); 
+            const [rules, setRules] = useState({ canCaptureUnrevealed: false, allowContinuousCapture: false });
+            const [continuousState, setContinuousState] = useState({ active: false, pieceIdx: null });
+
+            const user = useFirebaseUser();
+            const [onlineState, setOnlineState] = useState(null);
+
+            // --- Online Logic ---
+            useEffect(() => {
+                if (onlineMode && onlineMode.roomId) {
+                    const unsub = window.onSnapshot(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), (doc) => {
+                        if (doc.exists()) {
+                            const data = doc.data();
+                            setBoard(JSON.parse(data.board));
+                            setTurn(data.turn);
+                            setWinner(data.winner);
+                            setDeadPieces(JSON.parse(data.deadPieces));
+                            setRules(data.rules);
+                            setContinuousState(data.continuousState);
+                            setOnlineState(data);
+                            
+                            // Determine My Color
+                            if (data.colors && user) {
+                                if (data.colors[user.uid]) {
+                                    setMyColor(data.colors[user.uid]);
+                                }
+                            }
+                        }
+                    });
+                    return () => unsub();
+                }
+            }, [onlineMode, user]);
+
+            const showMessage = (msg) => { setMessage(msg); setTimeout(() => setMessage(null), 2000); };
+
+            // Helper: Is it my turn to act?
+            const canIAct = () => {
+                if (!onlineMode) return true; // Local mode: always allow input (hotseat)
+                if (onlineState?.status !== 'playing') return false;
+                
+                // If colors are not assigned yet (first move), anyone can flip?
+                // Usually Host flips first or it's random. Let's say if no turn color set, allow anyone (or host)
+                if (!turn) return true; // Allow flip to determine color
+                
+                // If colors assigned
+                if (myColor && turn === myColor) return true;
+                return false;
+            };
+
+            // Helper: Update Remote
+            const updateRemote = async (updates) => {
+                if (!onlineMode) return;
+                await window.updateDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', onlineMode.roomId), updates);
+            };
+
+            const initGame = async (customRules = rules) => {
+                const p = [];
+                const add = (color, typeObj, count) => { for(let i=0; i<count; i++) p.push({ id: `${color}-${typeObj.label}-${i}`, color, type: typeObj.label, value: typeObj.value, revealed: false, dead: false }); };
+                add('red', PIECES.RED.KING, 1); add('red', PIECES.RED.ADVISOR, 2); add('red', PIECES.RED.ELEPHANT, 2); add('red', PIECES.RED.ROOK, 2); add('red', PIECES.RED.HORSE, 2); add('red', PIECES.RED.CANNON, 2); add('red', PIECES.RED.PAWN, 5);
+                add('black', PIECES.BLACK.KING, 1); add('black', PIECES.BLACK.ADVISOR, 2); add('black', PIECES.BLACK.ELEPHANT, 2); add('black', PIECES.BLACK.ROOK, 2); add('black', PIECES.BLACK.HORSE, 2); add('black', PIECES.BLACK.CANNON, 2); add('black', PIECES.BLACK.PAWN, 5);
+                for (let i = p.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+
+                const initialState = {
+                    board: p, turn: null, winner: null, deadPieces: { red: [], black: [] },
+                    continuousState: { active: false, pieceIdx: null }
+                };
+
+                if (onlineMode) {
+                    // Only Host initializes
+                    // Assuming we are host if we are here via createRoom
+                    // But initGame is called by "Start Game" button in local mode or setup
+                } else {
+                    setPieces(p); setBoard(p); setTurn(null); setMyColor(null); setSelectedIdx(null); setWinner(null); setDeadPieces({ red: [], black: [] }); setMessage(null); setCaptureAnim(null); setContinuousState({ active: false, pieceIdx: null }); setRules(customRules); setShowSetup(false);
+                }
+            };
+
+            const getXY = (index) => ({ x: index % 8, y: Math.floor(index / 8) });
+            const getIndex = (x, y) => y * 8 + x;
+            const canMove = (fromIdx, toIdx, isCannon) => {
+                const from = getXY(fromIdx), to = getXY(toIdx), dx = Math.abs(from.x - to.x), dy = Math.abs(from.y - to.y), dist = dx + dy;
+                if (isCannon) {
+                    if (from.x !== to.x && from.y !== to.y) return false; 
+                    let obstacles = 0;
+                    if (from.x === to.x) { for(let y = Math.min(from.y, to.y) + 1; y < Math.max(from.y, to.y); y++) if(board[getIndex(from.x, y)]) obstacles++; }
+                    else { for(let x = Math.min(from.x, to.x) + 1; x < Math.max(from.x, to.x); x++) if(board[getIndex(x, from.y)]) obstacles++; }
+                    return obstacles === 1;
+                }
+                return dist === 1;
+            };
+            const canEat = (attacker, defender) => {
+                if (attacker.value === 2) return true;
+                if ((attacker.value === 1 && defender.value === 7)) return true;
+                if ((attacker.value === 7 && defender.value === 1)) return false;
+                return attacker.value >= defender.value;
+            };
+
+            const handleEndTurn = async () => {
+                const nextTurn = turn === 'red' ? 'black' : 'red';
+                const nextContState = { active: false, pieceIdx: null };
+                
+                if (onlineMode) {
+                    await updateRemote({ turn: nextTurn, continuousState: nextContState });
+                    setSelectedIdx(null);
+                } else {
+                    setTurn(nextTurn);
+                    setContinuousState(nextContState);
+                    setSelectedIdx(null);
+                }
+            };
+
+            const handleInteraction = async (index) => {
+                if (winner) return;
+                if (!canIAct()) return; // Online Guard
+
+                if (continuousState.active) {
+                    if (index === continuousState.pieceIdx) { setSelectedIdx(index); return; }
+                    const target = board[index];
+                    // Strict rule: if clicking own piece that is NOT the active one, warn
+                    if (target && target.revealed && target.color === turn && index !== continuousState.pieceIdx) {
+                        showMessage("連吃模式：必須使用當前棋子"); return;
+                    }
+                }
+
+                const targetPiece = board[index];
+
+                // --- 1. Flip (Reveal) ---
+                if (targetPiece && !targetPiece.revealed) {
+                    if (selectedIdx !== null) {
+                        // Capture Unrevealed Logic
+                        if (rules.canCaptureUnrevealed) {
+                            const attacker = board[selectedIdx];
+                            const isCannon = attacker.value === 2;
+                            let validMove = true, moveError = "";
+                            if (isCannon) { if (!canMove(selectedIdx, index, true)) { moveError = "炮需隔一子才能吃"; validMove = false; } }
+                            else { if (!canMove(selectedIdx, index, false)) { moveError = "距離過遠"; validMove = false; } }
+
+                            if (!validMove) { showMessage(moveError); return; }
+
+                            const revealedTarget = { ...targetPiece, revealed: true };
+                            // Check valid capture
+                            if (revealedTarget.color === turn) {
+                                // Invalid: Hit own piece -> Reveal and End Turn (Penalty)
+                                const newBoard = [...board]; newBoard[index] = revealedTarget;
+                                await updateGameState(newBoard, null, "不能吃自己的棋！", true);
+                                return;
+                            }
+                            if (!canEat(attacker, revealedTarget)) {
+                                // Invalid: Too big -> Reveal and End Turn (Penalty)
+                                const newBoard = [...board]; newBoard[index] = revealedTarget;
+                                await updateGameState(newBoard, null, `階級不足`, true);
+                                return;
+                            }
+                            await executeCapture(selectedIdx, index, attacker, revealedTarget);
+                            return;
+                        } else {
+                            showMessage("規則：不能吃未翻開的棋子"); return;
+                        }
+                    } else {
+                        // Just Flip
+                        const newBoard = [...board];
+                        newBoard[index] = { ...targetPiece, revealed: true };
+                        
+                        let updates = { board: JSON.stringify(newBoard) };
+                        let nextTurn = turn;
+
+                        // Determine Colors if first flip
+                        if (!turn) {
+                            const flippedColor = newBoard[index].color;
+                            nextTurn = flippedColor === 'red' ? 'black' : 'red';
+                            updates.turn = nextTurn;
+                            
+                            if (onlineMode) {
+                                // Assign colors: Current User gets 'flippedColor', Opponent gets other
+                                const opponentId = Object.values(onlineState.players).find(id => id !== user.uid);
+                                const newColors = {
+                                    [user.uid]: flippedColor,
+                                    [opponentId || 'guest']: flippedColor === 'red' ? 'black' : 'red'
+                                };
+                                updates.colors = newColors;
+                            } else {
+                                setMyColor(flippedColor);
+                                setTurn(nextTurn);
+                                setBoard(newBoard);
+                            }
+                        } else {
+                            nextTurn = turn === 'red' ? 'black' : 'red';
+                            updates.turn = nextTurn;
+                            if (!onlineMode) { setTurn(nextTurn); setBoard(newBoard); }
+                        }
+                        
+                        if (onlineMode) await updateRemote(updates);
+                        setMessage(null);
+                        return;
+                    }
+                }
+
+                // --- 2. Select Own Piece ---
+                if (targetPiece && targetPiece.revealed && targetPiece.color === turn) {
+                    if (onlineMode && myColor && myColor !== turn) return; 
+                    setSelectedIdx(index); setMessage(null); return;
+                }
+
+                // --- 3. Move or Attack ---
+                if (selectedIdx !== null) {
+                    const attacker = board[selectedIdx];
+                    const isCannon = attacker.value === 2;
+                    if (!targetPiece) {
+                        // Move to empty
+                        if (canMove(selectedIdx, index, false)) {
+                            const newBoard = [...board]; newBoard[index] = attacker; newBoard[selectedIdx] = null;
+                            await updateGameState(newBoard, null, null, true); // End turn
+                        } else { showMessage("無效的移動"); }
+                    } else if (targetPiece.revealed && targetPiece.color !== turn) {
+                        // Attack Revealed
+                        let valid = false, err = "無法吃子";
+                        if (isCannon) { if (canMove(selectedIdx, index, true)) valid = true; else err = "炮需隔一子才能吃子"; }
+                        else { if (canMove(selectedIdx, index, false)) { if (canEat(attacker, targetPiece)) valid = true; else err = "階級不足"; } else err = "距離過遠"; }
+                        
+                        if (valid) await executeCapture(selectedIdx, index, attacker, targetPiece);
+                        else showMessage(err);
+                    }
+                }
+            };
+
+            const updateGameState = async (newBoard, newDeadPieces, msg, switchTurn) => {
+                let updates = { board: JSON.stringify(newBoard) };
+                if (newDeadPieces) updates.deadPieces = JSON.stringify(newDeadPieces);
+                if (switchTurn) {
+                    updates.turn = turn === 'red' ? 'black' : 'red';
+                    updates.continuousState = { active: false, pieceIdx: null };
+                }
+                
+                if (onlineMode) {
+                    await updateRemote(updates);
+                    if (msg) showMessage(msg);
+                    setSelectedIdx(null);
+                } else {
+                    setBoard(newBoard);
+                    if (newDeadPieces) setDeadPieces(newDeadPieces);
+                    if (switchTurn) {
+                        setTurn(updates.turn);
+                        setContinuousState(updates.continuousState);
+                    }
+                    if (msg) showMessage(msg);
+                    setSelectedIdx(null);
+                }
+            };
+
+            const executeCapture = async (fromIdx, toIdx, attacker, victim) => {
+                setCaptureAnim({ idx: toIdx, piece: victim });
+                setTimeout(() => setCaptureAnim(null), 800);
+
+                const newBoard = [...board];
+                newBoard[toIdx] = attacker;
+                newBoard[fromIdx] = null;
+
+                const deadPiece = { ...victim, revealed: true };
+                const newDeadPieces = { ...deadPieces, [deadPiece.color]: [...deadPieces[deadPiece.color], deadPiece] };
+
+                // Check Win
+                const enemyColor = turn === 'red' ? 'black' : 'red';
+                const remaining = newBoard.filter(p => p && p.color === enemyColor && !p.dead);
+                let newWinner = null;
+                if (remaining.length === 0) newWinner = turn;
+
+                if (rules.allowContinuousCapture && !newWinner) {
+                    // Continuous Logic
+                    const newState = { active: true, pieceIdx: toIdx };
+                    if (onlineMode) {
+                        await updateRemote({
+                            board: JSON.stringify(newBoard),
+                            deadPieces: JSON.stringify(newDeadPieces),
+                            continuousState: newState,
+                            winner: newWinner
+                        });
+                        setSelectedIdx(toIdx);
+                        showMessage(`吃掉 ${victim.type}！連吃中`);
+                    } else {
+                        setBoard(newBoard); setDeadPieces(newDeadPieces); setContinuousState(newState); setWinner(newWinner); setSelectedIdx(toIdx);
+                        showMessage(`吃掉 ${victim.type}！連吃中`);
+                    }
+                } else {
+                    // Normal End Turn
+                    let updates = { board: JSON.stringify(newBoard), deadPieces: JSON.stringify(newDeadPieces), winner: newWinner || null };
+                    if (!newWinner) {
+                        updates.turn = turn === 'red' ? 'black' : 'red';
+                        updates.continuousState = { active: false, pieceIdx: null };
+                    }
+                    
+                    if (onlineMode) {
+                        await updateRemote(updates);
+                        setSelectedIdx(null);
+                    } else {
+                        setBoard(newBoard); setDeadPieces(newDeadPieces); setWinner(newWinner);
+                        if (!newWinner) { setTurn(updates.turn); setContinuousState(updates.continuousState); }
+                        setSelectedIdx(null);
+                    }
+                }
+            };
+
+            // --- Render ---
+            let statusText = "";
+            if (winner) statusText = (winner === 'red' ? '紅方' : '黑方') + ' 獲勝!';
+            else if (onlineMode && onlineState?.status === 'waiting') statusText = "等待對手加入...";
+            else if (onlineMode && !canIAct()) statusText = "對手思考中...";
+            else statusText = `輪到: ${turn === 'red' ? '紅方' : '黑方'}`;
+
+            return (
+                <div className="flex flex-col items-center justify-center min-h-screen bg-stone-800 p-2 relative">
+                    {/* Setup Modal (Local Only) */}
+                    {showSetup && !onlineMode && (
+                        <div className="absolute inset-0 bg-stone-900/90 z-50 flex items-center justify-center p-4">
+                            <div className="bg-[#eecfa1] p-6 sm:p-8 rounded-xl shadow-2xl max-w-sm w-full border-4 border-[#8b4513] text-stone-900">
+                                <h2 className="text-2xl font-bold mb-6 text-center border-b-2 border-[#8b4513] pb-2">新局設定</h2>
+                                <div className="space-y-4 mb-8">
+                                    <label className="flex items-center justify-between p-3 bg-white/50 rounded-lg cursor-pointer hover:bg-white/70 transition"><span className="font-bold flex items-center gap-2">{rules.canCaptureUnrevealed ? <Check className="text-green-700"/> : <X className="text-stone-400"/>}可吃蓋牌</span><input type="checkbox" className="w-6 h-6 accent-[#8b4513]" checked={rules.canCaptureUnrevealed} onChange={(e) => setRules({...rules, canCaptureUnrevealed: e.target.checked})}/></label>
+                                    <label className="flex items-center justify-between p-3 bg-white/50 rounded-lg cursor-pointer hover:bg-white/70 transition"><span className="font-bold flex items-center gap-2">{rules.allowContinuousCapture ? <Check className="text-green-700"/> : <X className="text-stone-400"/>}連吃模式</span><input type="checkbox" className="w-6 h-6 accent-[#8b4513]" checked={rules.allowContinuousCapture} onChange={(e) => setRules({...rules, allowContinuousCapture: e.target.checked})}/></label>
+                                </div>
+                                <div className="flex gap-2"><button onClick={() => onBack()} className="flex-1 py-3 bg-stone-500 text-white rounded font-bold hover:bg-stone-600 transition">取消</button><button onClick={() => initGame(rules)} className="flex-1 py-3 bg-[#8b4513] text-white rounded font-bold hover:bg-[#6d360f] transition shadow-lg">開始遊戲</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex w-full max-w-4xl justify-between items-center mb-4 text-white relative">
+                        <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 bg-stone-600 rounded hover:bg-stone-500 transition text-sm"><ArrowLeft size={16} /> 返回</button>
+                        <div className="flex flex-col items-center absolute left-1/2 transform -translate-x-1/2 w-full max-w-[280px] pointer-events-none">
+                            {message && <div className="mb-2 px-3 py-1 bg-red-600/90 text-white text-sm rounded-full shadow-lg animate-bounce flex items-center gap-1 whitespace-nowrap z-50"><AlertCircle size={14} /> {message}</div>}
+                            <div className="text-lg font-bold pointer-events-auto flex flex-col items-center">
+                                {winner ? <span className="text-yellow-400 flex items-center gap-2 animate-bounce"><Trophy /> {winner === 'red' ? '紅方' : '黑方'} 獲勝!</span> : <div className="flex items-center gap-2"><span>{statusText}</span></div>}
+                                {continuousState.active && !winner && canIAct() && (<button onClick={handleEndTurn} className="mt-4 px-6 py-2 bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-400 hover:to-red-500 text-white font-bold text-lg rounded-full shadow-lg border-2 border-white/50 animate-flash-button pointer-events-auto flex items-center gap-2 transform transition-all z-50">結束回合 (Pass)</button>)}
+                            </div>
+                        </div>
+                        {!onlineMode && <button onClick={() => setShowSetup(true)} className="p-2 bg-stone-600 rounded hover:bg-stone-500 transition"><Settings size={16} /></button>}
+                        {onlineMode && <div className="w-8"></div>}
+                    </div>
+
+                    <div className="flex flex-col xl:flex-row gap-6 w-full max-w-7xl justify-center items-start mt-4 px-2">
+                        <div className="order-2 xl:order-1 w-full xl:w-auto flex justify-center"><DeadPile title="紅方陣亡" pieces={deadPieces.red} isRed={true} /></div>
+                        <div className={`order-1 xl:order-2 shrink-0 grid grid-cols-8 gap-1 sm:gap-2 p-2 sm:p-4 rounded-lg shadow-2xl ${BOARD_COLOR} border-8 border-[#8b4513] mx-auto`}>
+                            {board.map((piece, i) => {
+                                // Disable logic: 
+                                // 1. If online and not playing -> disabled
+                                // 2. If online and not my turn -> disabled
+                                // 3. If continuous capture, and piece is not the active one -> disabled (visually)
+                                let disabled = false;
+                                if (onlineMode && onlineState?.status !== 'playing') disabled = true;
+                                if (onlineMode && !canIAct()) disabled = true;
+                                if (continuousState.active && continuousState.pieceIdx !== i && !(piece && !piece.revealed)) disabled = true;
+                                
+                                return (
+                                    <div key={i} className="w-10 h-10 sm:w-14 sm:h-14 md:w-20 md:h-20 flex items-center justify-center relative">
+                                        <div className="absolute inset-0 border border-stone-800/20 pointer-events-none"></div>
+                                        {captureAnim && captureAnim.idx === i && <CaptureEffect piece={captureAnim.piece} />}
+                                        {piece ? <Piece type={piece.type} color={piece.color} hidden={!piece.revealed} selected={selectedIdx === i} disabled={disabled} onClick={() => handleInteraction(i)} /> : <div onClick={() => handleInteraction(i)} className="w-full h-full cursor-pointer hover:bg-black/5 transition-colors" />}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="order-3 w-full xl:w-auto flex justify-center"><DeadPile title="黑方陣亡" pieces={deadPieces.black} isRed={false} /></div>
+                    </div>
+                    {onlineMode && <div className="mt-2 text-stone-500 text-sm">房間 ID: <span className="font-mono font-bold select-all">{onlineMode.roomId}</span></div>}
+                </div>
+            );
+        };
+
+        // --- Online Lobby ---
+        const OnlineLobby = ({ onBack, onJoinGame }) => {
+            const [mode, setMode] = useState('menu'); // menu, create, join
+            const [roomIdInput, setRoomIdInput] = useState('');
+            const [isCreating, setIsCreating] = useState(false);
+            const [rules, setRules] = useState({ canCaptureUnrevealed: false, allowContinuousCapture: false });
+            const [gameType, setGameType] = useState('small'); // big or small
+
+            const user = useFirebaseUser();
+
+            // Helper to generate short numeric ID
+            const generateRoomId = () => {
+                return Math.floor(100000 + Math.random() * 900000).toString();
+            };
+
+            const createRoom = async () => {
+                if (!user) return;
+                setIsCreating(true);
+                try {
+                    // Init Small Board data for host
+                    let initialBoardStr = "";
+                    let initialDead = JSON.stringify({red:[], black:[]});
+                    
+                    if (gameType === 'small') {
+                        const p = [];
+                        const add = (color, typeObj, count) => { for(let i=0; i<count; i++) p.push({ id: `${color}-${typeObj.label}-${i}`, color, type: typeObj.label, value: typeObj.value, revealed: false, dead: false }); };
+                        add('red', PIECES.RED.KING, 1); add('red', PIECES.RED.ADVISOR, 2); add('red', PIECES.RED.ELEPHANT, 2); add('red', PIECES.RED.ROOK, 2); add('red', PIECES.RED.HORSE, 2); add('red', PIECES.RED.CANNON, 2); add('red', PIECES.RED.PAWN, 5);
+                        add('black', PIECES.BLACK.KING, 1); add('black', PIECES.BLACK.ADVISOR, 2); add('black', PIECES.BLACK.ELEPHANT, 2); add('black', PIECES.BLACK.ROOK, 2); add('black', PIECES.BLACK.HORSE, 2); add('black', PIECES.BLACK.CANNON, 2); add('black', PIECES.BLACK.PAWN, 5);
+                        for (let i = p.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+                        initialBoardStr = JSON.stringify(p);
+                    } else {
+                        // Big Board Init
+                        const b = Array(10).fill(null).map(() => Array(9).fill(null));
+                        b[0] = ['b_rook', 'b_horse', 'b_elephant', 'b_advisor', 'b_king', 'b_advisor', 'b_elephant', 'b_horse', 'b_rook']; b[2][1] = 'b_cannon'; b[2][7] = 'b_cannon'; b[3][0] = 'b_pawn'; b[3][2] = 'b_pawn'; b[3][4] = 'b_pawn'; b[3][6] = 'b_pawn'; b[3][8] = 'b_pawn';
+                        b[9] = ['r_rook', 'r_horse', 'r_elephant', 'r_advisor', 'r_king', 'r_advisor', 'r_elephant', 'r_horse', 'r_rook']; b[7][1] = 'r_cannon'; b[7][7] = 'r_cannon'; b[6][0] = 'r_pawn'; b[6][2] = 'r_pawn'; b[6][4] = 'r_pawn'; b[6][6] = 'r_pawn'; b[6][8] = 'r_pawn';
+                        initialBoardStr = JSON.stringify(b);
+                    }
+
+                    const roomId = generateRoomId();
+
+                    // Using setDoc to set specific short ID
+                    await window.setDoc(window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', roomId), {
+                        createdAt: window.serverTimestamp ? window.serverTimestamp() : new Date(),
+                        gameType,
+                        rules: gameType === 'small' ? rules : {},
+                        players: { host: user.uid },
+                        status: 'waiting',
+                        board: initialBoardStr,
+                        turn: 'red', // Standard Start
+                        deadPieces: initialDead,
+                        continuousState: { active: false, pieceIdx: null },
+                        colors: gameType === 'big' ? { [user.uid]: 'red' } : {} // Big board host is red, small board undetermined
+                    });
+                    
+                    onJoinGame({ roomId: roomId, gameType });
+                } catch (e) {
+                    console.error(e);
+                    alert("建立房間失敗");
+                }
+                setIsCreating(false);
+            };
+
+            const joinRoom = async () => {
+                if (!roomIdInput) return;
+                try {
+                    const roomRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', roomIdInput);
+                    const snap = await window.getDoc(roomRef);
+                    if (snap.exists()) {
+                        const data = snap.data();
+                        if (data.status !== 'waiting' && (!data.players.guest || data.players.guest !== user.uid) && data.players.host !== user.uid) {
+                            alert("房間已滿或遊戲進行中");
+                            return;
+                        }
+                        
+                        // Join
+                        if (data.players.host !== user.uid) {
+                            await window.updateDoc(roomRef, {
+                                'players.guest': user.uid,
+                                status: 'playing',
+                                // If big board, assign guest to black
+                                ...(data.gameType === 'big' ? { ['colors.' + user.uid]: 'black' } : {})
+                            });
+                        }
+                        onJoinGame({ roomId: roomIdInput, gameType: data.gameType });
+                    } else {
+                        alert("房間不存在");
+                    }
+                } catch (e) {
+                    console.error(e);
+                    alert("加入失敗");
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-stone-900 flex flex-col items-center justify-center p-4 text-stone-100">
+                    <h1 className="text-3xl font-serif font-bold text-[#eecfa1] mb-8 tracking-widest">線上對戰大廳</h1>
+                    
+                    {mode === 'menu' && (
+                        <div className="flex flex-col gap-4 w-full max-w-xs">
+                            <button onClick={() => setMode('create')} className="bg-[#8b4513] py-4 rounded-xl font-bold shadow-lg hover:bg-[#6d360f] transition">建立房間</button>
+                            <button onClick={() => setMode('join')} className="bg-stone-700 py-4 rounded-xl font-bold shadow-lg hover:bg-stone-600 transition">加入房間</button>
+                            <button onClick={onBack} className="mt-4 text-stone-500 hover:text-stone-300">返回主選單</button>
+                        </div>
+                    )}
+
+                    {mode === 'create' && (
+                        <div className="bg-[#eecfa1] p-6 rounded-xl shadow-2xl max-w-sm w-full border-4 border-[#8b4513] text-stone-900">
+                            <h2 className="text-xl font-bold mb-4 text-center">建立新局</h2>
+                            <div className="flex gap-2 mb-4">
+                                <button onClick={() => setGameType('big')} className={`flex-1 py-2 rounded font-bold ${gameType === 'big' ? 'bg-[#8b4513] text-white' : 'bg-white/50'}`}>大盤</button>
+                                <button onClick={() => setGameType('small')} className={`flex-1 py-2 rounded font-bold ${gameType === 'small' ? 'bg-[#8b4513] text-white' : 'bg-white/50'}`}>小盤</button>
+                            </div>
+                            
+                            {gameType === 'small' && (
+                                <div className="space-y-2 mb-6">
+                                    <label className="flex items-center justify-between p-2 bg-white/50 rounded cursor-pointer"><span className="text-sm font-bold">可吃蓋牌</span><input type="checkbox" className="accent-[#8b4513]" checked={rules.canCaptureUnrevealed} onChange={(e) => setRules({...rules, canCaptureUnrevealed: e.target.checked})}/></label>
+                                    <label className="flex items-center justify-between p-2 bg-white/50 rounded cursor-pointer"><span className="text-sm font-bold">連吃模式</span><input type="checkbox" className="accent-[#8b4513]" checked={rules.allowContinuousCapture} onChange={(e) => setRules({...rules, allowContinuousCapture: e.target.checked})}/></label>
+                                </div>
+                            )}
+
+                            <button onClick={createRoom} disabled={isCreating} className="w-full py-3 bg-[#8b4513] text-white rounded font-bold hover:bg-[#6d360f] transition shadow-lg mb-2">
+                                {isCreating ? "建立中..." : "確認建立"}
+                            </button>
+                            <button onClick={() => setMode('menu')} className="w-full py-2 text-stone-600">取消</button>
+                        </div>
+                    )}
+
+                    {mode === 'join' && (
+                        <div className="bg-[#eecfa1] p-6 rounded-xl shadow-2xl max-w-sm w-full border-4 border-[#8b4513] text-stone-900">
+                            <h2 className="text-xl font-bold mb-4 text-center">加入房間</h2>
+                            <input 
+                                type="text" 
+                                placeholder="輸入 6 位數房間 ID" 
+                                value={roomIdInput}
+                                onChange={(e) => setRoomIdInput(e.target.value)}
+                                className="w-full p-3 rounded border border-stone-400 mb-4 bg-white/80 font-mono text-center tracking-widest text-lg"
+                            />
+                            <button onClick={joinRoom} className="w-full py-3 bg-[#8b4513] text-white rounded font-bold hover:bg-[#6d360f] transition shadow-lg mb-2">加入</button>
+                            <button onClick={() => setMode('menu')} className="w-full py-2 text-stone-600">取消</button>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const MainMenu = ({ onSelectMode }) => (
+            <div className="min-h-screen bg-stone-900 flex flex-col items-center justify-center p-4">
+                <h1 className="text-4xl sm:text-6xl font-serif font-bold text-[#eecfa1] mb-2 tracking-widest text-center">中國象棋</h1>
+                <p className="text-stone-400 mb-12 tracking-wider">CHINESE CHESS</p>
+                <div className="flex flex-col gap-6 w-full max-w-md">
+                    <button onClick={() => onSelectMode({ type: 'big' })} className="group relative overflow-hidden bg-[#eecfa1] p-6 rounded-xl shadow-lg hover:shadow-2xl transition-all hover:-translate-y-1"><div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><div className="flex items-center justify-between relative z-10"><div className="text-left"><h2 className="text-2xl font-bold text-stone-900 mb-1">大盤象棋</h2><p className="text-stone-700 text-sm">傳統玩法，單機雙人</p></div><div className="w-12 h-12 rounded-full border-4 border-red-700 text-red-700 font-bold flex items-center justify-center text-xl bg-[#eecfa1]">帥</div></div></button>
+                    <button onClick={() => onSelectMode({ type: 'small' })} className="group relative overflow-hidden bg-stone-700 p-6 rounded-xl shadow-lg hover:shadow-2xl transition-all hover:-translate-y-1 border border-stone-600"><div className="absolute inset-0 bg-black/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><div className="flex items-center justify-between relative z-10"><div className="text-left"><h2 className="text-2xl font-bold text-[#eecfa1] mb-1">小盤象棋 (暗棋)</h2><p className="text-stone-400 text-sm">翻牌運氣，單機雙人</p></div><div className="w-12 h-12 rounded-full bg-red-900 border-4 border-red-950 flex items-center justify-center shadow-inner"><span className="text-xs text-red-200/50">?</span></div></div></button>
+                    <button onClick={() => onSelectMode({ type: 'online' })} className="group relative overflow-hidden bg-blue-900 p-6 rounded-xl shadow-lg hover:shadow-2xl transition-all hover:-translate-y-1 border border-blue-700"><div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><div className="flex items-center justify-between relative z-10"><div className="text-left"><h2 className="text-2xl font-bold text-blue-100 mb-1">線上對戰</h2><p className="text-blue-300 text-sm">建立房間，遠端連線</p></div><Users className="text-blue-200" size={48} /></div></button>
+                </div>
+                <div className="mt-12 text-stone-600 text-sm">Designed for React Web</div>
+            </div>
+        );
+
+        const App = () => {
+            const [view, setView] = useState('menu'); 
+            const [onlineConfig, setOnlineConfig] = useState(null); // { roomId, gameType }
+
+            const handleSelectMode = (mode) => {
+                if (mode.type === 'online') setView('lobby');
+                else setView(mode.type);
+            };
+
+            const handleJoinGame = (config) => {
+                setOnlineConfig(config);
+                setView(config.gameType === 'big' ? 'big' : 'small');
+            };
+
+            return (
+                <div className="font-sans">
+                    {view === 'menu' && <MainMenu onSelectMode={handleSelectMode} />}
+                    {view === 'lobby' && <OnlineLobby onBack={() => setView('menu')} onJoinGame={handleJoinGame} />}
+                    {view === 'big' && <BigBoardGame onBack={() => { setView('menu'); setOnlineConfig(null); }} onlineMode={onlineConfig} />}
+                    {view === 'small' && <SmallBoardGame onBack={() => { setView('menu'); setOnlineConfig(null); }} onlineMode={onlineConfig} />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
